@@ -1,0 +1,13 @@
+Name	Condition	Cell_type	Treatment	Day	Replicate
+wt_contr_rep1	wt_contr	wt	contr	0	1
+wt_contr_rep2	wt_contr	wt	contr	0	2
+wt_contr_rep3	wt_contr	wt	contr	0	3
+232_contr_rep1	232_contr	232	contr	0	1
+232_contr_rep2	232_contr	232	contr	0	2
+232_contr_rep3	232_contr	232	contr	0	3
+wt_HS_4d_rep1	wt_HS	wt	HS	4	1
+wt_HS_4d_rep2	wt_HS	wt	HS	4	2
+wt_HS_4d_rep3	wt_HS	wt	HS	4	3
+232_HS_4d_rep1	232_HS	232	HS	4	1
+232_HS_4d_rep2	232_HS	232	HS	4	2
+232_HS_4d_rep3	232_HS	232	HS	4	3
