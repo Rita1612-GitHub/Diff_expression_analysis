@@ -61,7 +61,157 @@ cut -f1,7-18 /mnt4/transciptome_compare/komarova/STAR_alignment/featureCount_res
 ```
 After that we need to add column names and remove unnecessary information.
 
+## DESeq2 analysis
+**1. Data pre-processing.**
+Read the file with featureCounts results.
+```
+table_count <- read.table("Counts.Rmatrix2.txt", header=TRUE, row.names =1)
+```
+Let's remove the X before 232 in the title.
+```
+tags <- sapply(colnames(table_count), function (x) sub("X", "", basename(x)))
+colnames(table_count) <- tags
+```
+**2. Condition assignment.**
+Condition of the experiment:
+```
+cond <- data.frame(read.csv("Conditions_IB.tsv", header=T, sep = '\t', row.names = 1))
+```
+**3. Creation DESEq2 dataset.**
+```
+samples = names(table_count)
+dds = DESeqDataSetFromMatrix(countData=table_count, colData=cond, design = ~ Condition)
+#dds <- dds[rowSums(counts(dds)) > 20, ] # Filtering (not nessisary on this step).
+dds <- DESeq(dds) #Normalisation
+res <- results(dds)
+```
+**4. PCA plot.**
+```
+png("PCA_plot.png", 1000, 1000, pointsize=20)
+vst_dds <- vst(dds)
+counts.norm <- assay(vst_dds)
+PCA_plot <- plotPCA(vst_dds,intgroup=c("Condition"))
+PCA_plot
+dev.off()
+PCA_plot
+```
+**5. Volcano plot.**
+```
+gdata <- data.frame(
+  x=res$log2FoldChange,
+  y=-log10(res$padj)
+)
+png("Volcanoplot_before.png", 500, 500, pointsize=30)
+ggplot(data=gdata, aes(x=x, y=y, color = (res$padj<0.01 & abs(res$log2FoldChange) >= 1) )) +
+  geom_point(size=1) + theme_bw()  +
+  xlab("Log fold change") +
+  ylab("Adjusted p.value")
+dev.off()
+```
+**6. Heatmap plot.**
+```
+counts.norm <- counts(dds, normalized=TRUE)
+png("heatmap_large.png", width=6, height=20, units="in", res=300)
+to_visualise <- counts.norm[rownames(res), order(cond[, 2])]
+to_visualise <- t(apply(to_visualise, 1, function(r) {
+  (r - min(r)) / (max(r) - min(r))
+}))
+to_visualise <- na.omit(to_visualise)
+pheatmap(to_visualise, 
+         show_rownames = F, cluster_rows = F,
+         cluster_cols=F,
+         annotation_col = cond)
+dev.off()
+```
+## GO analysis
+GO analysis allows to group differentially expressed genes by their molecular function, biological process or cellular component. We can identify which signal pathwats are upregulated or downregulated.
 
+**1. Fast Gene Set Enrichment Analysis (GSEA) Using fgsea package.**
+Download annotation
+```
+load("C:/R/IB/Projects/Data/mouse_c5_v5p2.rdata")
+pathways <- Mm.c5 # http://bioinf.wehi.edu.au/software/MSigDB/
+```
+Let us carry out a comparative analysis of differentially expressed genes between the wt_contr and 232_contr groups. Let's see which genes were influenced by the 232 mutation in LMNA.
+```
+de <- results(dds, contrast = c("Condition", "wt_contr", "232_contr"))
+de_Genes <- row.names(de) 
+de$row_Genes <- de_Genes 
+de <- as.data.table(de)
+de <- na.omit(de) # NA omit
+de$row_Genes <- as.character(de$row_Genes) 
+de[, row_Genes2 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="SYMBOL")] # Create new column with gene SYMBOL
+de <- unique(de, by = "row_Genes") 
+de <-de[order(de$padj),] #sorting padj
+write.csv(de, "table_de.csv") # write in file
+gene_list_de <- de$log2FoldChange
+genes <- bitr(de$row_Genes,
+              fromType = "ENSEMBL",
+              toType = "ENTREZID", 
+              OrgDb = org.Mm.eg.db) 
+names(gene_list_de) <- genes$ENTREZID
+#For fgsea need to create named vector with ENTREZID of genes and their log2FoldChange values.
+fr_de <- fgsea(pathways, gene_list_de, nperm = 100000, nproc=4, minSize=15, maxSize=500)
+#head(fr_de[order(pval), ])
+fr_de[order(padj)]
+```
+Some graphs:
+```
+plotEnrichment(pathways[["GO_MUSCLE_TISSUE_DEVELOPMENT"]], gene_list_de) + 
+  ggtitle("Myogenesis")
+```
+Upregulated and downregulated signal pathways:
+```
+topPathwaysUp <- fr_de[ES > 0][head(order(pval), n=5), pathway]
+topPathwaysDown <- fr_de[ES < 0][head(order(pval), n=5), pathway]
+topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+```
+
+```
+plotGseaTable(pathways[topPathways], gene_list_de, fr_de, 
+              gseaParam=0.5)
+```
+
+You can do the same for wt_HS vs 232_HS.
+
+**2. Gene Set Enrichment Analysis with ClusterProfiler.**
+Filtering:
+```
+sorted <- res[with(res, order(padj, -log2FoldChange)), ] # 16289 genes.
+sorted_df <- data.frame("id"=rownames(sorted),sorted)
+sorted_df <- na.omit(sorted_df) #удалили NA
+p_adj_below_0.01 <- sorted_df %>% filter(padj<0.01 & abs(log2FoldChange)>1) #filtering to padj и log2FoldChange
+```
+Add some new column with ENTREZID and SYMBOL of genes.
+```
+p_adj_Genes <- row.names(p_adj_below_0.01)
+p_adj_below_0.01$row_Genes <- p_adj_Genes
+p_adj_below_0.01 <- as.data.table(p_adj_below_0.01)
+p_adj_below_0.01 <- na.omit(p_adj_below_0.01)
+p_adj_below_0.01$row_Genes <- as.character(p_adj_below_0.01$row_Genes)
+p_adj_below_0.01[, row_Genes2 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="SYMBOL")]
+p_adj_below_0.01[, row_Genes3 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="ENTREZID")]
+p_adj_below_0.01 <-p_adj_below_0.01[order(p_adj_below_0.01$padj),]
+p_adj_below_0.01$row_Genes3 <- as.character(p_adj_below_0.01$row_Genes3)
+```
+Drow some pictures:
+```
+de[, row_Genes3 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="ENTREZID")]
+ego_de <- enrichGO(gene          = de$row_Genes3,
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05,
+        readable      = TRUE)
+dotplot(ego_de, showCategory=30)
+#BiocManager::install("Rgraphviz")
+plot_GO <- plotGOgraph(ego_de)
+```
 2. Пайплайн Кристины Гайновой
 
 3. Пайплайн Ани Квач
