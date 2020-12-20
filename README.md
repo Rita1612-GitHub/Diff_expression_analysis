@@ -212,7 +212,111 @@ dotplot(ego_de, showCategory=30)
 #BiocManager::install("Rgraphviz")
 plot_GO <- plotGOgraph(ego_de)
 ```
-2. Gainova Kristina
+# *Arabidopsis thaliana* (Gainova Kristina)
+## Methods:
+- TopHat2 (v2.1.1) alignment
+- Cuffdiff (v2.2.1) to to find significant changes in transcript expression, splicing, and promoter use.
+- fgsea (v1.12.0) and ClusterProfiler (v3.14.3) packages to identify signal pathways. 
+
+To capture the dynamic transcriptional response of Arabidopsis plants to HL stress, scientists performed a time course RNA sequencing (RNA-seq) study (doi:10.1016/j.celrep.2019.11.051). Arabidopsis seedlings were treated with high light (HL: 1,200 mmol m-2 s-1, leaf temperature: 22C) for 0.5, 6, 12, 24, 48, and 72 h with corresponding growth light (GL: 60 mmol m-2 s-1, leaf temperature: 22C) treatments as control. 
+In this study samples treated with HL for 24 h with corresponding growth light (highlighted in yellow) were chosen for following analysis with Tophat and Cuffdiff.
+
+Samples (two replicas for each):
+SRR6767639,SRR6767640	GL24h
+SRR6767652,SRR6767653 HL24h
+
+Genome (and bowtie2 index files) and annotation were downloaded from: (http://igenomes.illumina.com.s3-website-us-east-1.amazonaws.com/Arabidopsis_thaliana/Ensembl/TAIR10/Arabidopsis_thaliana_Ensembl_TAIR10.tar.gz)
+
+## FastQC
+At the first, it was checked quality of raw reads using FastQC program (v0.11.5). The diagrams below demonstrate high quality of data. Thus read trimming is not required for mapping and quantification of RNA-seq reads.
+
+## TopHat
+Usage: **tophat [options]* <genome_index_base> <reads1_1[,...,readsN_1]> [reads1_2,...readsN_2]**
+Arguments:
+
+**genome_index_base** 	The basename of the genome index to be searched. The basename is the name of any of the index files up to but not including the first period. Bowtie first looks in the current directory for the index files, then looks in the indexes subdirectory under the directory where the currently-running bowtie executable is located, then looks in the directory specified in the BOWTIE_INDEXES  (or BOWTIE2_INDEXES) environment variable. **Please note that it is highly recommended that a FASTA file with the sequence(s) the genome being indexed be present in the same directory with the Bowtie index files** and having the name <genome_index_base>.fa. If not present, TopHat will automatically rebuild this FASTA file from the Bowtie index files.
+
+**reads1_1[,...,readsN_1]**	A comma-separated list of files containing reads in FASTQ or FASTA format. When running TopHat with paired-end reads, this should be the *_1 ("left") set of files.
+
+**[reads1_2,...readsN_2]**	A comma-separated list of files containing reads in FASTQ or FASTA format. Only used when running TopHat with paired end reads, and contains the *_2 ("right") set of files. The *_2 files MUST appear in the same order as the *_1 files.
+
+
+Options:
+
+**-i/--min-intron-length <int>**	The minimum intron length. TopHat will ignore donor/acceptor pairs closer than this many bases apart. The default is 70.
+**-I/--max-intron-length <int>**	The maximum intron length. When searching for junctions ab initio, TopHat will ignore donor/acceptor pairs farther than this many bases apart, except when such a pair is supported by a split segment alignment of a long read. The default is 500000.
+
+### Running TopHat
+
+Working directory must contains: reference genome and bowtie index files, annotation (GTF) and reads in format fastq
+
+I used the following commands to map the RNA-seq reads to the genome:
+
+~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767639_tophat genome SRR6767639.fastq
+
+~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767640_tophat genome SRR6767640.fastq
+
+~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767652_tophat genome SRR6767652.fastq
+
+~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767653_tophat genome SRR6767653.fastq
+
+
+Here, SRR***_tophat represents the output directory for each run. If no output directory is specified by the –o option, TopHat automatically creates a directory called tophat_out in the working director, and stores the output files in it. The values of the intron lengths are adjusted as 20bp and 5000 bp respectively for Arabidopsis thaliana instead of the default values which are for mammals.
+
+**Error occurs during the execution of the program**
+samtools view: samtools view: writing to standard output failedwriting to standard output failed: Broken pipe
+: Broken pipe
+samtools view: error closing standard output: -1
+
+The successful run creates a directory with the name specified by the user, containing the following files: **accepted_hits.bam**, **align_summary.txt**, **deletions.bed**, **insertions.bed**, **junctions.bed**, **prep_reads.info**, **unmapped.bam** and a directory with the name **logs**.
+
+## Cuffdiff
+
+Since it exists reference genome and annotation for Arabidopsis thaliana I skipped steps with Cufflinks and Cuffmerge (_de novo assembling_ step) and used Cuffdiff program.
+
+Cuffdiff program is used to find significant changes in transcript expression, splicing, and promoter use. Manual for Cuffdiff you can find here <http://cole-trapnell-lab.github.io/cufflinks/cuffdiff/>.
+
+
+Cuffdiff options:
+
+**-o/–output-dir <string>* Sets the name of the directory in which Cuffdiff will write all of its output. The default is “./”. From the command line, run cuffdiff as follows:
+
+**-L/–labels <label1,label2,…,labelN>** Specify a label for each sample, which will be included in various output files produced by Cuffdiff.
+
+**-p/–num-threads <int>** Use this many threads to align reads. The default is 1.
+
+~$ cuffdiff --geometric-norm -p 16 -o cuffdiff_result_only genes.gtf -L GL_12h_control,HL_12h_treatment ./SRR6767639_tophat/accepted_hits.bam,./SRR6767640_tophat/accepted_hits.bam ./SRR6767652_tophat/accepted_hits.bam,./SRR6767653_tophat/accepted_hits.bam
+
+Here parameter **--geometric-norm** was used for data normalization.
+
+The successful run creates a directory with the name specified by the user, containing the following files:
+bias_params.info, gene_exp.diff, isoforms.fpkm_tracking, tss_group_exp.diff, cds.count_tracking, genes.count_tracking,    isoforms.read_group_tracking, tss_groups.count_tracking, cds.diff, genes.fpkm_tracking, promoters.diff, tss_groups.fpkm_tracking,
+cds_exp.diff, genes.read_group_tracking, read_groups.info, tss_groups.read_group_tracking, cds.fpkm_tracking, isoform_exp.diff, run.info, var_model.info, cds.read_group_tracking, isoforms.count_tracking, splicing.diff
+
+Needed file called gene_exp.diff. Initially I viewed content of the file and remove rows, where encountered value "inf" using command line:
+
+~$ cat gene_exp.diff | grep -v "inf"  > new_file.csv
+
+## Data analysis in R 
+Data analysis in R and visualization is located in branch “GainovaKristina”, Analysis of DEGs Arabidopsis thaliana.Rmd. This file contains main GSEA graphics (Dotplot, GseaPlot, Enricment map and volcano plot).
+
+## Problems
+1. Unfortunately normilization in cuffddif programs works awful! I find that for almost of genes q_value has same values. I decided to find amount of duplicated values in column "q_value" and it equals more 80 % of data!
+2. Also using of pipeline cufflinks -> cuffmerge -> cuffdiff convert gene id to XLOC ** id. It makes difficult work with data.
+3. Tophat2 v2.1.1 have some problems with error samtools view (samtools view: writing to standard output failedwriting to standard output failed: Broken pipe : Broken pipe samtools view: error closing standard output: -1) and unknown ways to solve this error.
+
+## Conclusions:
+Here it was conducted reanalysis of RNA-seq data to identify the core HL-responsive genes. It was found that 2620 DEGs (1260 upregulated and 1365 downregulated genes, padj < 0.05 and abs(log2FC) > 1). It was shown that upregulateg genes are related with different response to stress stimulus, while downregulated genes are involved in biosythesis and differentiation.
+
+## References:
+https://rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf
+https://www.bioconductor.org/packages/release/data/annotation/manuals/org.At.tair.db/man/org.At.tair.db.pdf 
+https://cran.r-project.org/web/packages/ggridges/vignettes/introduction.html
+https://learn.gencore.bio.nyu.edu/rna-seq-analysis/gene-set-enrichment-analysis/
+https://rdrr.io/github/GuangchuangYu/enrichplot/man/pairwise_termsim.html
+Martin Morgan (2020). BiocVersion: Set the appropriate version of Bioconductor packages. R package version 3.12.0.
+Ghosh S, Chan CK. Analysis of RNA-Seq Data Using TopHat and Cufflinks. Methods Mol Biol. 2016;1374:339-61. doi: 10.1007/978-1-4939-3167-5_18. PMID: 26519415.
+
 
 3. Kvach Anna
 
