@@ -225,7 +225,16 @@ Samples (two replicas for each):
 SRR6767639,SRR6767640	GL24h
 SRR6767652,SRR6767653 HL24h
 
-Genome (and bowtie2 index files) and annotation were downloaded from: (http://igenomes.illumina.com.s3-website-us-east-1.amazonaws.com/Arabidopsis_thaliana/Ensembl/TAIR10/Arabidopsis_thaliana_Ensembl_TAIR10.tar.gz)
+samples were downloaded and convert to fastq format, examples of commands present below
+```
+prefetch SRR6767639 
+fastq-dump SRR6767639 
+```
+
+Genome (and bowtie2 index files) and annotation were downloaded from: (http://igenomes.illumina.com.s3-website-us-east-1.amazonaws.com/Arabidopsis_thaliana/Ensembl/TAIR10/Arabidopsis_thaliana_Ensembl_TAIR10.tar.gz) using command:
+```
+wget http://igenomes.illumina.com.s3-website-us-east-1.amazonaws.com/Arabidopsis_thaliana/Ensembl/TAIR10/Arabidopsis_thaliana_Ensembl_TAIR10.tar.gz
+```
 
 ## FastQC
 At the first, it was checked quality of raw reads using FastQC program (v0.11.5). The diagrams below demonstrate high quality of data. Thus read trimming is not required for mapping and quantification of RNA-seq reads.
@@ -252,14 +261,12 @@ Working directory must contains: reference genome and bowtie index files, annota
 
 I used the following commands to map the RNA-seq reads to the genome:
 
-~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767639_tophat genome SRR6767639.fastq
-
-~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767640_tophat genome SRR6767640.fastq
-
-~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767652_tophat genome SRR6767652.fastq
-
-~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767653_tophat genome SRR6767653.fastq
-
+```
+tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767639_tophat genome SRR6767639.fastq
+tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767640_tophat genome SRR6767640.fastq
+tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767652_tophat genome SRR6767652.fastq
+tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767653_tophat genome SRR6767653.fastq
+```
 
 Here, SRR***_tophat represents the output directory for each run. If no output directory is specified by the –o option, TopHat automatically creates a directory called tophat_out in the working director, and stores the output files in it. The values of the intron lengths are adjusted as 20bp and 5000 bp respectively for Arabidopsis thaliana instead of the default values which are for mammals.
 
@@ -285,8 +292,9 @@ Cuffdiff options:
 
 **-p/–num-threads <int>** Use this many threads to align reads. The default is 1.
 
-~$ cuffdiff --geometric-norm -p 16 -o cuffdiff_result_only genes.gtf -L GL_12h_control,HL_12h_treatment ./SRR6767639_tophat/accepted_hits.bam,./SRR6767640_tophat/accepted_hits.bam ./SRR6767652_tophat/accepted_hits.bam,./SRR6767653_tophat/accepted_hits.bam
-
+```
+cuffdiff --geometric-norm -p 16 -o cuffdiff_result_only genes.gtf -L GL_12h_control,HL_12h_treatment ./SRR6767639_tophat/accepted_hits.bam,./SRR6767640_tophat/accepted_hits.bam ./SRR6767652_tophat/accepted_hits.bam,./SRR6767653_tophat/accepted_hits.bam
+```
 Here parameter **--geometric-norm** was used for data normalization.
 
 The successful run creates a directory with the name specified by the user, containing the following files:
@@ -295,7 +303,9 @@ cds_exp.diff, genes.read_group_tracking, read_groups.info, tss_groups.read_group
 
 Needed file called gene_exp.diff. Initially I viewed content of the file and remove rows, where encountered value "inf" using command line:
 
-~$ cat gene_exp.diff | grep -v "inf"  > new_file.csv
+```
+cat gene_exp.diff | grep -v "inf"  > new_file.csv
+```
 
 ## Data analysis in R 
 Data analysis in R and visualization is located in branch “GainovaKristina”, Analysis of DEGs Arabidopsis thaliana.Rmd. This file contains main GSEA graphics (Dotplot, GseaPlot, Enricment map and volcano plot).
