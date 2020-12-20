@@ -1,0 +1,1343 @@
+---
+title: "Autozooid-Avicularium Transcriptome"
+author: "anna kvach"
+date: "12/16/2020"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    toc_depth: 4
+    theme: united
+    highlight: tango
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+---
+
+
+Our task was to reproduce the analysis of differential gene expression from the article - "Differential Gene Expression Between Polymorphic Zooids of the Marine Bryozoan Bugulina stolonifera" - <https://www.g3journal.org/content/10/10/3843#sec-1>
+
+# Pipeline
+
+For data dowload, quality assessment, cleaning:
+
+
+* Sratoolkit 
+
+* FastQC
+
+* MultiQC
+
+* Trim Galore 
+
+* FastQC
+
+* MultiQC
+
+* Rcorrector
+
+* FastQC
+
+* MultiQC
+
+* Bowtie2 
+
+
+Quantification and Differential gene expression
+
+
+* Salmon - Quantification
+
+* EdgeR - Differential gene expression
+
+
+# Obtain data
+
+
+For or work needed forward and reverse reads and transcriptome assembly and annotation for it.
+
+We used Autozooid-Avicularium Transcriptome, Annotation  for it and reads (includes autozooid bud, mature autozooid, avicularium bud, and mature avicularium samples) of Bugulina stolonifera 
+
+
+## Transcriptome assembly and annotation
+
+
+
+Transcriptome assembly - <https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/SDJZ4X> - Autozooid-Avicularium Transcriptome (includes autozooid bud, mature autozooid, avicularium bud, and mature avicularium samples) of Bugulina stolonifera 
+
+
+
+```{bash, eval=F, echo=T}
+
+
+mkdir Transcriptome_assembly
+cd Transcriptome_assembly
+wget https://dataverse.harvard.edu/api/access/datafile/:persistentId?persistentId=doi:10.7910/DVN/SDJZ4X/U3DI0X
+
+mv ':persistentId?persistentId=doi:10.7910%2FDVN%2FSDJZ4X%2FU3DI0X' Tr_assem.fasta # rename to the file with .fasta formate
+
+
+```
+
+Transcriptome annotation - <https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/GHE8T4> - Autozooid Bud, Autozooid Mature, Avicularium Bud, Avicularium Mature  Transcriptome Annotation Report
+
+```{bash, eval=F, echo=T}
+
+
+mkdir Transcriptome_annotation
+cd Transcriptome_annotation
+wget https://dataverse.harvard.edu/api/access/datafile/4005816
+
+mv 4005816 tr_annot.xls # rename to the file with .xls formate
+
+
+```
+
+
+
+```{bash, eval=F, echo=T}
+
+
+mkdir transcriptome_assembly
+wget -P transcriptome_assembly https://dataverse.harvard.edu/api/access/datafile/:persistentId?persistentId=doi:10.7910/DVN/SDJZ4X/RXE6CF
+
+
+```
+
+
+
+## PE
+
+
+
+Zooid type          |    SRR ID        | 
+--------------------|------------------|
+avicularium, mature | 	 SRR11096622   |    
+avicularium, bud	  |    SRR11096623	 |  
+avicularium, bud  	|    SRR11096624	 |     
+avicularium, bud  	|    SRR11096625	 |    
+autozooid, mature	  |    SRR11096626	 |      
+autozooid, mature	  |    SRR11096627	 |      
+autozooid, mature	  |    SRR11096628	 |     
+autozooid, bud	    |    SRR11096629	 |   
+avicularium, mature |    SRR11096637	 |     
+avicularium, mature |    SRR11096638	 | 
+autozooid, bud	    |    SRR11096639	 |     
+autozooid, bud	    |    SRR11096640	 | 
+
+
+
+There are two options how to obtain reads-data: with help of Sratoolkit and simple bash code or manually from EBLM-EBI. 
+
+
+
+### Sratoolkit + simple bash 
+
+
+
+Using this method, we created a simple bash program that receives a file.txt with sra identifiers as input. Our code uses the prefetch and fastq-dump programs from the Sratoolkit package, and as a result downloads forward and backward reads.
+
+
+
+First of all we created a id.txt with all sra id on each line. We used this file each time we needed to iteratete by .fastq files
+
+
+
+```{bash, eval=F, echo=T}
+
+
+vi id.txt
+
+
+```
+
+
+
+```{bash, content of txt.file, eval=F, echo=T}
+
+
+SRR11096622
+SRR11096623
+SRR11096624  
+SRR11096625
+SRR11096626
+SRR11096627
+SRR11096628
+SRR11096629
+SRR11096637
+SRR11096638
+SRR11096639
+SRR11096640
+
+
+```
+
+
+
+And we used simple bash code to do the operation for each pair of reads: 
+
+
+
+```{bash, sra_dowload_with_sratoolkit, eval=F, echo=T}
+
+
+#!/bin/bash  
+# for SRA files downloading with help of sratoolkit                                           
+FILE=$1                            
+while read id                      
+do                                 
+prefetch $id                       
+echo "for $id prefetch done"       
+fastq-dump --split-files --split-3 ${id}.sra
+echo "for $id fastq-dump done"     
+done < $FILE
+
+
+```
+
+
+
+And after that:
+
+
+
+```{bash, eval=F, echo=T}
+
+
+/path_to/sra_dowload_with_sratoolkit.sh sra_id.txt
+
+
+```
+
+
+
+In result you got for all samples SRRXXXXXXXX_1.fastq.gz (forward reads) and (revers reads) SRRXXXXXXXX_2.fastq.gz, and for some samples - SRRXXXXXXXX.fastq.gz - files without prefix. Files with no prefix are files of the remaining unpaired reads, and we did not use them.
+
+
+
+```{bash, eval=F, echo=T}
+
+
+mkdir /path_to/forward_and_revers_raw_reads # create dir for forward and revers raw reads
+mkdir /path_to/bad_single_reads # create dir for unpaired reads
+
+mv *_*.*  /path_to/forward_and_revers_raw_reads # dir for forward and revers raw reads 
+mv *.f* /path_to/bad_single_reads # dir for remaining unpaired reads - did not use them
+
+
+```
+
+
+
+### Directly and manually from EBLM-EBI
+
+
+
+Also data could be obtained directly and manually from EBLM-EBI - <https://www.ebi.ac.uk/ena/browser/view/PRJNA607082>. 
+
+Files with forward reads have "_1" prefix (for ex. SRR11096622_1.fastq.gz) and files with reverse reads have "_2" prefix (for ex. SRR11096622_2.fastq.gz). Files with no prefix are files of the remaining unpaired reads, and we did not need them.
+
+
+
+# First data quality assessment FastQC and MultiQC
+
+
+
+## FastQC_1 v0.11.5
+
+
+
+```{bash, eval=F, echo=T}
+
+
+# start to work with good paired reads
+cd forward_and_revers_raw_reads 
+
+# to unarchive all data  
+gunzip *fastq.gz 
+
+# create new dir for fastqc reports
+mkdir /path_to/FastQC_1_for_raw_data 
+
+# create fastqc reports in FastQC_1_for_raw_data
+fastqc -t 10 -o /path_to/FastQC_1_for_raw_data * 
+
+
+```
+
+
+
+
+## MultiQC_1
+
+
+
+```{bash, eval=F, echo=T}
+
+
+# to summarising the output from numerous fastqc reports in one .html file
+multiqc /path_to/FastQC_1_for_raw_data
+
+
+```
+
+
+
+
+Quality reports show problems with:
+
+* The mean quality value across each base position in the read for 4 fastq files
+
+* The proportion of each base position for which each of the four normal DNA bases has been called for all
+
+* Per Sequence GC Content for all
+
+* Sequence Duplication Levels for all
+
+* Overrepresented sequences for 23 fastq files is failed
+
+* Adapter Content for all
+
+
+
+You can find my quality report in repository - multiqc_report_RAW_READS.html
+
+
+
+# Trim Galore + second FastQC after it
+
+
+
+As we faced with adapters-problem we create file.fasta with adapters from <http://docs.blast2go.com/user-manual/tools-(pro-feature)/fastq-quality-check/#FASTQQualityCheck-PerBaseSequenceQuality>.
+
+
+
+
+```{bash, eval=F, echo=T}
+
+
+vi adapters.fasta
+
+
+```
+
+
+
+```{bash, eval=F, echo=T}
+
+
+>Illumina_Universal_Adapter 
+AGATCGGAAGAG
+>Illumina_Small_RNA_3_Adapter
+TGGAATTCTCGG
+>Illumina_Small_RNA_5_Adapter
+GATCGTCGGACT
+
+
+```
+
+
+
+And we used default options (as it was pointed in the papper) for Trim Galore:
+
+
+
+* -q 20 - remove low-quality reads with a Phred score cutoff of 20
+
+* --length 36 - a minimum read length threshold of 36 bp
+
+* -stringency 1 - a stringency parameter of 1 for adapter sequence overlap
+
+* -e 0.1 - a maximum allowed error rate of (0.1) 
+
+* -a2 "file:/path_to/adapters.fasta" - to specify individual adapter sequences from our file.fasta for the two reads of paired-end files
+
+* -o after_trim_galore_1  - all output will be written to this directory 
+
+* --fastqc - create fastQC report
+
+* {$1}_1.fastq - forward reads 
+
+* {$id}_2.fastq - reverse reads 
+
+
+
+```{bash, eval=F, echo=T}
+
+
+#!/bin/bash  
+# for trimming with TrimGalore for forward and reverse reads                                           
+FILE=$1                            
+while read id                      
+do                                     
+/path_to/TrimGalore-0.6.6/trim_galore --paired --phred33 -q 20 --length 36 -stringency 1 -e 0.1 -a2 "file:/path_to/adapters.fasta" -o after_trim_galore_1  --fastqc ${id}_1.fastq ${id}_2.fastq 
+echo "for $id fastq-dump done --split-3"     
+done < $FILE
+
+
+```
+
+
+
+## MultiQC_2
+
+
+
+```{bash, eval=F, echo=T}
+
+
+multiqc /path_to/after_trim_galore_1
+
+
+```
+
+
+
+Quality reports steel show problems with:
+
+* The proportion of each base position for which each of the four normal DNA bases has been called for all
+
+* Per Sequence GC Content became a little bit better
+
+* Sequence Duplication Levels for all
+
+* Overrepresented sequences became a little bit better
+
+You can find my quality report in repository - multiqc_report_TRIM_GALORE.html
+
+
+
+# Rcorrector
+
+
+
+```{bash, eval=F, echo=T}
+
+
+mkdir /path_to/test_rcorrector_1
+
+
+```
+
+
+
+```{bash, eval=F, echo=T}
+
+
+/path_to/rcorrector -p SRR11096623_1_val_1.fq SRR11096623_2_val_2.fq \
+-p SRR11096624_1_val_1.fq SRR11096624_2_val_2.fq \
+-p SRR11096625_1_val_1.fq SRR11096625_2_val_2.fq \
+-p SRR11096637_1_val_1.fq SRR11096637_2_val_2.fq \
+-p SRR11096638_1_val_1.fq SRR11096638_2_val_2.fq \
+-p SRR11096622_1_val_1.fq SRR11096622_2_val_2.fq \
+-p SRR11096629_1_val_1.fq SRR11096629_2_val_2.fq \
+-p SRR11096639_1_val_1.fq SRR11096639_2_val_2.fq \
+-p SRR11096640_1_val_1.fq SRR11096640_2_val_2.fq \
+-p SRR11096626_1_val_1.fq SRR11096626_2_val_2.fq \
+-p SRR11096627_1_val_1.fq SRR11096627_2_val_2.fq \
+-p SRR11096628_1_val_1.fq SRR11096628_2_val_2.fq -od test_rcorrector_1
+
+
+```
+
+
+
+## MultiQC_3
+```{bash, eval=F, echo=T}
+
+
+multiqc /path_to/test_rcorrector_1
+
+
+```
+
+
+Quality report does not change.
+
+You can find my quality report in repository - multiqc_report_RCORRECTOR.html
+
+
+
+# Identify and remove over-represented sequences
+
+
+
+Based on all FastQC reports table () and .fasta file (over_r_rRNA.fasta) with all over-represented sequences was created. 
+
+You can find table_FastQC_reports.csv and .fasta file (over_r_rRNA.fasta).
+
+
+
+Using over_r_rRNA.fasta with help of Blastn - (<https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome>) all unique sequences were identified.
+
+* Database --> Standard databases (nr/nt) --> Nucleotide collection (nr/nt)
+
+* Organism --> bryozoans (taxid:10205)
+
+
+
+After that, it was indicated in the table opposite each sequence what it encodes. 
+
+The sequences of ribosomal RNA and cytochrome oxidases were transferred to the fast file (over_r_rRNA.fasta). 
+
+This is necessary for the next cleaning step.
+
+
+
+## Bowtie2 - Remove over-represented sequences 
+
+
+
+We used Bowtie2 to filtered the read, which mapped on over_r_rRNA.fasta (file with rRNA and COI sequences). 
+
+The example we used to complete this part. - <https://sites.google.com/site/wiki4metagenomics/tools/short-read/remove-host-sequences>
+
+Bowtie2 database was created using fasta file with over-represented sequences.
+
+
+
+```{bash, eval=F, echo=T}
+
+
+bowtie2-build over_r_rRNA.fasta O_R_rRNA_DB
+
+
+```
+
+
+
+And we used simple bash code to do the operation for each pair of reads:
+
+
+
+```{bash, eval=F, echo=T}
+
+
+#!/bin/bash
+
+FILE=$1
+while read ID
+do
+        bowtie2 -p 14 -x /path_to/O_R_rRNA_DB \
+        -1 /path_to/${ID}_1_val_1.cor.fq \
+        -2 /path_to/${ID}_2_val_2.cor.fq \
+        --un-conc /path_to/${ID}_rna_removed > ${ID}mapped_and_unmapped.sam
+
+done < $FILE
+
+
+```
+
+
+
+```{bash, eval=F, echo=T}
+
+
+chmod +x code_to_remove_o_r_rrna.sh
+
+
+```
+
+
+
+Run code:
+
+
+
+```{bash, eval=F, echo=T}
+
+
+/path_to/code_to_remove_o_r_rrna.sh id.txt
+
+
+```
+
+
+
+The otput file loks like {ID}_rna_removed.1 and {ID}_rna_removed.2, so we needed to rename them. Did it in new dir - after_rna_remove.
+
+
+
+```{bash, eval=F, echo=T}
+
+
+mkdir after_rna_remove 
+cp id.txt ./after_rna_remove/id_1.txt
+mv *_rna_removed* after_rna_remove 
+
+
+```
+
+
+
+```{bash, eval=F, echo=T}
+
+
+vi for_rename.sh
+
+
+```
+
+
+
+And we again used simple bash code to do the operation for each pair of reads:
+
+
+
+```{bash, eval=F, echo=T}
+
+
+#!/bin/bash
+
+FILE=$1
+while read ID
+do
+        mv ${ID}_rna_removed.1 ${ID}_rna_removed_1_F.fastq
+        mv ${ID}_rna_removed.2 ${ID}_rna_removed_2_R.fastq
+
+done < $FILE
+
+
+```
+
+
+
+
+```{bash, eval=F, echo=T}
+
+
+chmod +x for_rename.sh
+
+
+```
+
+
+
+Create fastqc report to that over-represented sequences a little loss. 
+
+
+
+```{bash, eval=F, echo=T}
+
+
+mkdir fastq_reports_after_rna_remove
+fastqc -o fastq_reports_after_rna_remove *fastq
+
+
+```
+
+
+
+## MultiQC
+
+
+
+```{bash, eval=F, echo=T}
+
+
+multiqc fastq_reports_after_rna_remove
+
+
+```
+
+
+
+-----------------------------------------
+For now, we stopped at this step, because we just wanted to try different ways to clean up the data. 
+
+Since we did not plan to collect the transcript, but align it with a ready-made transcript assembled 
+
+from completely purified reads, this should not have hindered us in further analysis.
+----------------------------------------
+
+
+
+# SALMON (version : 0.7.2)
+
+We used Salmon v0.7.2 for quantification of transcript abundance. Salmon in mapping-based mode uses a selective alignment strategy, that is much faster than traditional alignment (e.g. Bowtie2) while maintaining accuracy. 
+
+
+## Indexind ref. transcriprome
+
+We built the mapping-based index for transcriptome assembly.
+
+```{bash, eval=F, echo=T}
+
+
+gzip Tr_assem.fasta
+
+cd /path_to/Transcriptome_assembly
+
+/path_to/salmon-latest_linux_x86_64/bin/salmon index -t Tr_assem.fasta.gz -i ref_index_Tr_assem
+
+
+```
+
+
+
+## Counting counts
+
+
+
+And we used simple bash code to do the operation for each pair of reads:
+
+
+
+```{bash, eval=F, echo=T}
+
+
+vi for_salmon_quant.sh
+
+
+```
+
+
+We quantify sets of paired-end reads against pre-built index.The library type is automatically determined via -l A. Flag --validateMappings enables selective alignment mode. 
+
+
+```{bash, eval=F, echo=T}
+
+
+#!/bin/bash
+
+FILE=$1
+while read ID
+do
+echo "Processing sample ${ID}"
+
+# SRR11096631_rna_removed_2_R.fastq
+/path_to/salmon quant -i /path_to/ref_index_Tr_assem -l A \
+         -1 /path_to/${ID}_rna_removed_1_F.fastq \
+         -2 /path_to/${ID}_rna_removed_2_R.fastq \
+         -p 14 --validateMappings -o ${ID}_quant
+
+done < $FILE
+
+
+```
+
+
+
+```{bash, eval=F, echo=T}
+
+
+chmod +x for_salmon_quant.sh
+
+
+```
+
+
+
+Run code:
+
+
+
+```{bash, eval=F, echo=T}
+
+
+for_salmon_quant.sh /path_to/id.txt
+
+
+```
+
+The result f this operation is directories with Salmon quant output (quant.sf). 
+
+Names of directories were like SRR11096629_quant.
+
+We import these directories with FileZilla
+
+
+# EdgeR
+
+## Install packages
+
+We tried to install the required packages using the usual method, but nothing came of it.
+
+```{r}
+
+
+install.packages("tximport")
+install.packages("edgeR")
+
+
+```
+
+
+So we found solution there - <https://bioconductor.org/install/>. 
+
+"If" statement is checking if we already had BiocManager package installed, if not then install it. We needed this package to install other bioconductor packages (edgeR, mixOmics, RColorBrewer).
+
+
+```{r}
+
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+
+```
+
+
+For package installation we used function from - <https://stackoverflow.com/a/31620488>. 
+
+It will check for missing packages and install them + it will query both - CRAN and Bioconductor repositories for missing package.
+
+
+```{r}
+
+
+install.packages.auto <- function(x) { 
+  x <- as.character(substitute(x)) 
+  if(isTRUE(x %in% .packages(all.available=TRUE))) { 
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  } else { 
+    #update.packages(ask= FALSE) #update installed packages.
+    eval(parse(text = sprintf("install.packages(\"%s\", dependencies = TRUE)", x)))
+  }
+  if(isTRUE(x %in% .packages(all.available=TRUE))) { 
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  } else {
+    source("http://bioconductor.org/biocLite.R")
+    #biocLite(character(), ask=FALSE) #update installed packages.
+    eval(parse(text = sprintf("biocLite(\"%s\")", x)))
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  }
+}
+
+
+```
+
+
+### Packages installation:
+
+```{r}
+
+
+install.packages.auto(tximport)
+install.packages.auto(edgeR)
+install.packages.auto(mixOmics)
+install.packages.auto(RColorBrewer)
+install.packages.auto(readxl)
+install.packages.auto(ggplot2)
+
+BiocManager::install("HTSFilter")
+
+
+```
+
+
+
+### Library packages:
+
+
+
+```{r}
+
+
+library("tximport")
+library("edgeR")
+library("mixOmics")
+library("RColorBrewer")
+library("ggplot2")
+library("readxl")
+library("HTSFilter")
+
+
+```
+
+
+## Prepairing data 
+
+
+
+"In quant.sf we obtained a table of counts, but for each transcript. 
+
+The counts are fractional numbers. You also have normalized counts (per million reads), 
+
+and information on the "real" transcript length and an "effective" length that can be used for normalization, 
+
+which takes into account several biases." 
+
+
+
+### tximport
+
+
+#### Import annotation: 
+
+```{r}
+
+
+for_tx2gene <- read.delim("/home/anna/temp/tr_annot.xls")
+colnames(for_tx2gene)
+
+
+```
+
+
+
+In  our assemly fasta file --> TRINITY_DN174516_c0_g1_i1 :
+
+```{bash, eval=F, echo=T}
+
+
+>TRINITY_DN174516_c0_g1_i1 len=210 path=[188:0-209] [-1, 188, -2]
+CCATTGTCGGTACCATCCTTCTCCTCGTCATCTGCGGTGCCTGCTTCCTCATCATGAAGA
+AGACCTCCGACAAGAACGTCGAGCAGATCGTTGCCGGCCGGACCGCCCAGTTTGACTACT
+CTTCGACCTCGTCCTCTTCCGAGTTTGCTGGTGCCAACCAGTTTGCTGACCTCGACTACT
+ACTCGTACTCGTACTAAGGCGTGTGAAAAC
+
+
+```
+
+
+So we need to put transcript_id data (with "TRINITY_DN174516_c0_g1_i1") in the first column in tx2gene file
+
+
+```{r}
+
+
+head(for_tx2gene[,c(2,1)])
+tx2gene <- for_tx2gene[,c(2,1)]
+
+
+```
+
+
+#### Impotr Salmon quant output (quant.sf)
+
+* samples_names - names of dirs with quant.sf files
+
+* files - paths to quant.sf files
+
+* names(files) - creating names of samples
+
+
+```{r}
+
+
+samples_names <- c( "SRR11096629_quant", "SRR11096639_quant", "SRR11096640_quant", "SRR11096623_quant", "SRR11096624_quant", "SRR11096625_quant",  "SRR11096626_quant", "SRR11096627_quant", "SRR11096628_quant",  "SRR11096637_quant", "SRR11096638_quant", "SRR11096622_quant")
+
+files <- file.path("/home/anna/temp/for_quant_sf", samples_names, "quant.sf")
+
+names(files) <- paste0("s_", 1:12, c("_auto_bud", "_auto_bud", "_auto_bud", "_avi_bud", "_avi_bud", "_avi_bud", "_auto_mat", "_auto_mat", "_auto_mat",  "_avi_mat", "_avi_mat", "_avi_mat"))
+
+files
+
+
+```
+
+
+```{r}
+
+
+txi.salmon <- tximport(files, type = "salmon", tx2gene = tx2gene)
+
+
+```
+
+---------------------------------
+transcripts missing from tx2gene: 305496
+
+
+At this step, we ran into a problem that we have not yet been able to resolve. 
+
+We tried a number of ways other people suggested to solve this problem, but it did not work. 
+
+The difficulty lies in the fact that we have only an assembly file in which there is no binding to the genes of the sequences. 
+
+And most of the proposed solutions are to create a tx2gene file not from the annotation, as we did, 
+
+but from the reference transcriptome file, the relationship between sequences and genes is already indicated.
+
+Useful discussions and solutions we tried: 
+
+* <https://support.bioconductor.org/p/123134/#125284>
+
+* <https://support.bioconductor.org/p/93382/>
+
+* <https://www.biostars.org/p/312338/>
+
+
+
+---------------------------------
+
+Reference transcriptome file, the relationship between sequences and genes is already indicated
+
+```{bash, eval=F, echo=T}
+
+
+zcat Homo_sapiens.GRCh38.cdna.all.fa.gz | head
+>ENST00000631435.1 cdna chromosome:GRCh38:CHR_HSCHR7_2_CTG6:142847306:142847317:1 gene:ENSG00000282253.1 gene_biotype:TR_D_gene transcript_biotype:TR_D_gene gene_symbol:TRBD1 description:T cell receptor beta diversity 1 [Source:HGNC Symbol;Acc:HGNC:12158]
+GGGACAGGGGGC
+zcat Homo_sapiens.GRCh38.cdna.all.fa.gz | head
+>ENST00000631435.1 cdna chromosome:GRCh38:CHR_HSCHR7_2_CTG6:142847306:142847317:1 gene:ENSG00000282253.1 gene_biotype:TR_D_gene transcript_biotype:TR_D_gene gene_symbol:TRBD1 description:T cell receptor beta diversity 1 [Source:HGNC Symbol;Acc:HGNC:12158]
+GGGACAGGGGGC
+
+
+```
+
+
+Our transcriptome file:
+
+```{bash, eval=F, echo=T}
+
+
+>TRINITY_DN174503_c0_g1_i1 len=284 path=[262:0-283] [-1, 262, -2]
+CGCATTAACCACGGCCGAGGATATTAACGTAAACAACGCTCGCCTTCAAGTAGATCTATC
+TGGAAAATATGATGCCATTAAAGCACAGCATAATGCTCTTCAACGTGATTATGACTCGCA
+
+
+```
+
+
+Creating a DGEList object for EdgeR:
+
+```{r}
+
+
+
+cts <- txi.salmon$counts
+normMat <- txi.salmon$length
+normMat <- normMat/exp(rowMeans(log(normMat)))
+o <- log(calcNormFactors(cts/normMat)) + log(colSums(cts/normMat))
+group = c(1,1,1,2,2,2,3,3,3,4,4,4) # add groups 
+
+y <- DGEList(cts, group = group)
+y$offset <- t(t(log(normMat)) + o)
+
+
+
+```
+
+
+# Filtering
+
+We filtered out the genes with counts lower than 5. 
+
+That is a standard approximation of count level, at which genes are possibly being expressed biologically. 
+
+```{r}
+
+
+keep <- filterByExpr(y)
+y <- y[keep, , keep.lib.sizes=FALSE]
+y
+
+
+```
+
+
+```{r}
+
+
+nrow(y$counts)
+
+
+```
+
+# Normalisation - Effective library sizes
+
+Library size may influence on differential expression, because RNA-seq measure relative expression rather than absolute expression. 
+
+If a small number of genes is very highly expressed in particular sample (but not in others), 
+
+they represent a substantial proportion of the total library size for that sample. 
+
+This will cause the remaining genes to be under-sampled for that sample, i.e. falsely down-regulated. 
+
+To adjust this, we scaled the library sizes using TMM (trimmed mean of M-values) normalization via calcNormFactors function. 
+
+Effective library sizes computed by this function replaced the original ones in downstream analysis. 
+
+Adjustment of varying sequencing depth proceeds automatically in edgeR. 
+
+GC content and gene length were not evaluated or adjusted because they rarely change from sample 
+
+to sample and therefore are not expected to have a significant impact on the analysis. 
+
+
+```{r}
+
+
+y <- calcNormFactors(y)
+y$samples
+
+
+```
+
+```{r}
+
+
+nrow(y$counts)
+
+
+```
+
+## PcoA (MDS plot)
+
+
+MDS plot shows the relative similarities of the 12 samples. 
+
+"The function plotMDS produces a plot in which distances between samples
+
+correspond to leading biological coefficient of variation (BCV) between those samples:" 
+
+<https://bioconductor.org/packages/release/bioc/vignettes/edgeR/inst/doc/edgeRUsersGuide.pdf>
+
+```{r}
+
+
+samples_names_hum <- paste0(c(29,39,40, 23,24,25, 26,27,28, 37,38,22), c("_auto_bud", "_auto_bud", "_auto_bud", "_avi_bud", "_avi_bud", "_avi_bud", "_auto_mat", "_auto_mat", "_auto_mat",  "_avi_mat", "_avi_mat", "_avi_mat"))
+
+plotMDS(y, col= c(1,1,1,2,2,2,3,3,3,4,4,4), labels = samples_names_hum)
+
+
+```
+
+
+There we can see clear cluster of "mature autozooids".
+
+And some clusters of 2 "autozooid buds", 2 "mature aviculariums", 2 "avicularium buds". One sample bounces off each of these clusters. 
+
+Also we can see that "autozooid buds" are near "mature autozooids". 
+
+
+Create design matrix - experiments options
+
+```{r}
+samples_names_hum <- paste0(c(29,39,40, 23,24,25, 26,27,28, 37,38,22), c("_auto_bud", "_auto_bud", "_auto_bud", "_avi_bud", "_avi_bud", "_avi_bud", "_auto_mat", "_auto_mat", "_auto_mat",  "_avi_mat", "_avi_mat", "_avi_mat"))
+
+zooid_type <- c('AU','AU','AU', 'av', 'av', 'av','AU','AU','AU', 'av', 'av', 'av')
+
+age <- c('b', 'b', 'b', 'b', 'b', 'b', 'M', 'M', 'M', 'M', 'M', 'M')
+
+all_against_all <- c(1:12)
+
+each_sample <- c(1,1,1,2,2,2,3,3,3,4,4,4)
+
+metadata <- data.frame(samples_names_hum, zooid_type, age, all_against_all, each_sample)
+metadata
+```
+
+
+## ~age + zooide type
+
+```{r}
+design_age_zooide_type<- model.matrix(~age + zooid_type, data = metadata)
+rownames(design_age_zooide_type) <- samples_names_hum
+design_age_zooide_type
+```
+
+## Estmete dispersion
+
+```{r}
+y <- estimateDisp(y)
+y
+```
+### estimate disp
+```{r}
+y$common.dispersion
+```
+### plotBCV
+```{r}
+plotBCV(y)
+```
+
+
+### Boxplot for pseudo-counts
+
+```{r}
+pseudoCounts <- log2(y$counts + 1)
+head(pseudoCounts)
+```
+
+
+
+```{r}
+boxplot(pseudoCounts, col = "gray", las = 3, cex.names = 1)
+```
+
+### MA-plots between first two WT samples (using limma package)
+```{r}
+limma::plotMA(pseudoCounts[ ,1:12], xlab = "M", ylab = "A", main = "")
+abline(h = 0, col = "red")
+```
+
+### Heatmap
+
+```{r}
+sampleDists <- as.matrix(dist(t(pseudoCounts)))
+sampleDists
+```
+
+
+```{r}
+cimColor <- colorRampPalette(rev(brewer.pal(9, "Blues")))(8)
+cim(sampleDists, color = cimColor, symkey = FALSE, row.cex = 0.7, col.cex = 0.7) # vvedi eto v consol
+```
+
+```{r}
+dgeFilt <- HTSFilter(y)$filteredData
+```
+
+
+#### topTags
+
+```{r}
+fit <- glmFit(dgeFilt)
+dgeLRTfilt <- glmLRT(fit, coef = 2)
+resLRTfilt <- topTags(dgeLRTfilt, n = nrow(dgeFilt$counts))
+selectedFilt <- resLRTfilt$table$FDR < 0.05 & abs(resLRTfilt$table$logFC) > 1
+selectedFilt <- resLRTfilt$table[selectedFilt, ]
+nrow(selectedFilt)
+```
+
+```{r}
+head(selectedFilt)
+```
+
+```{r}
+dgeFilt$samples$group <- design_age_zooide_type
+```
+
+
+```{r}
+selY <- cpm(dgeFilt, log = TRUE, prior.count = 1)
+selY <- selY[match(rownames(selectedFilt), rownames(dgeFilt$counts)), ]
+finalHM <- cim(t(selY), color = cimColor, symkey = FALSE, row.cex = 0.7,
+               col.cex = 0.7)
+
+
+# ================================
+## with design
+
+### estimatind disp
+
+```
+
+
+
+
+```{r}
+sessionInfo()
+```
+
+R version 3.6.3 (2020-02-29)
+
+Platform: x86_64-pc-linux-gnu (64-bit)
+
+Running under: Ubuntu 20.04.1 LTS
+
+Matrix products: default
+
+BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.9.0
+
+LAPACK: /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3.9.0
+
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=ru_RU.UTF-8  
+ 
+ [4] LC_COLLATE=en_US.UTF-8     LC_MONETARY=ru_RU.UTF-8    LC_MESSAGES=en_US.UTF-8   
+ 
+ [7] LC_PAPER=ru_RU.UTF-8       LC_NAME=C                  LC_ADDRESS=C          
+ 
+[10] LC_TELEPHONE=C             LC_MEASUREMENT=ru_RU.UTF-8 LC_IDENTIFICATION=C       
+
+attached base packages:
+
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] readxl_1.3.1       tximport_1.14.2    HTSFilter_1.26.0   mixOmics_6.10.9    ggplot2_3.3.2   
+ 
+ [6] lattice_0.20-40    MASS_7.3-53        RColorBrewer_1.1-2 edgeR_3.28.1       limma_3.42.2      
+
+loaded via a namespace (and not attached):
+
+ [1] bitops_1.0-6                matrixStats_0.57.0          bit64_0.9-7         
+ 
+ [4] GenomeInfoDb_1.22.1         backports_1.2.1             tools_3.6.3       
+ 
+ [7] R6_2.5.0                    rpart_4.1-15                Hmisc_4.4-2     
+ 
+[10] DBI_1.1.0                   BiocGenerics_0.32.0         colorspace_2.0-0  
+
+[13] nnet_7.3-13                 withr_2.3.0                 tidyselect_1.1.0    
+
+[16] gridExtra_2.3               DESeq2_1.26.0               bit_1.1-15.2     
+
+[19] compiler_3.6.3              Biobase_2.46.0              htmlTable_2.1.0  
+
+[22] DelayedArray_0.12.3         checkmate_2.0.0             scales_1.1.1   
+
+[25] readr_1.4.0                 genefilter_1.68.0           DESeq_1.38.0               
+
+[28] stringr_1.4.0               digest_0.6.27               foreign_0.8-75             
+
+[31] rmarkdown_2.6               XVector_0.26.0              base64enc_0.1-3            
+
+[34] jpeg_0.1-8.1                pkgconfig_2.0.3             htmltools_0.5.0      
+
+[37] htmlwidgets_1.5.3           rlang_0.4.9                 rstudioapi_0.13            
+
+[40] RSQLite_2.2.0               generics_0.1.0              jsonlite_1.7.2             
+
+[43] BiocParallel_1.20.1         dplyr_1.0.2                 RCurl_1.98-1.2             
+
+[46] magrittr_2.0.1              GenomeInfoDbData_1.2.2      Formula_1.2-4              
+
+[49] Matrix_1.2-18               Rcpp_1.0.5                  munsell_0.5.0              
+
+[52] S4Vectors_0.24.4            lifecycle_0.2.0             stringi_1.5.3              
+
+[55] yaml_2.2.1                  SummarizedExperiment_1.16.1 zlibbioc_1.32.0            
+
+[58] plyr_1.8.6                  grid_3.6.3                  blob_1.2.1                 
+
+[61] parallel_3.6.3              crayon_1.3.4                splines_3.6.3              
+
+[64] annotate_1.64.0             hms_0.5.3                   locfit_1.5-9.4             
+
+[67] knitr_1.30                  pillar_1.4.7                igraph_1.2.6               
+
+[70] GenomicRanges_1.38.0        corpcor_1.6.9               geneplotter_1.64.0         
+
+[73] reshape2_1.4.3              stats4_3.6.3                XML_3.99-0.3               
+
+[76] glue_1.4.2                  evaluate_0.14               latticeExtra_0.6-29        
+
+[79] data.table_1.13.4           BiocManager_1.30.10         vctrs_0.3.6                
+
+[82] png_0.1-7                   cellranger_1.1.0            gtable_0.3.0               
+
+[85] purrr_0.3.4                 tidyr_1.1.2                 xfun_0.19                  
+
+[88] xtable_1.8-4                RSpectra_0.16-0             survival_3.1-8             
+
+[91] rARPACK_0.11-0              tibble_3.0.4                AnnotationDbi_1.48.0       
+
+[94] memoise_1.1.0               IRanges_2.20.2              ellipse_0.4.2              
+
+[97] cluster_2.1.0               statmod_1.4.35              ellipsis_0.3.1  
+
+
+
+# References
+
+Bowtie2 - <http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml#output-options>
+
+FastQC - <https://github.com/chgibb/FastQC0.11.5>
+
+FileZilla - <https://filezilla.ru/>
+
+MultiQC - <https://multiqc.info/>
+
+SALMON - <https://github.com/COMBINE-lab/salmon>
+
+Sratoolkit - <http://ncbi.github.io/sra-tools/>
+
+Rcorrector - <https://github.com/mourisl/Rcorrector>
+
+TrimGalore-0.6.6 - <https://github.com/FelixKrueger/TrimGalore>
+
