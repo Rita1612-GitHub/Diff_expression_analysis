@@ -212,9 +212,9 @@ dotplot(ego_de, showCategory=30)
 #BiocManager::install("Rgraphviz")
 plot_GO <- plotGOgraph(ego_de)
 ```
-2. Пайплайн Кристины Гайновой
+2. Gainova Kristina
 
-3. Пайплайн Ани Квач
+3. Kvach Anna
 
-The first step of all piplines was quality assessment of reads using FastQC programm.
+
 
