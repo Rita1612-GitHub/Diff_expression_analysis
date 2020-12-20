@@ -1,0 +1,384 @@
+---
+title: "Обработка таблицы каунтов с помощью DESeq"
+output:
+  html_document:
+    toc: yes
+    toc_position: right
+    toc_depth: 3
+    toc_float: yes
+    smooth_scroll: no
+    theme: united
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE, message = FALSE}
+options(width = 70, scipen = 16, digits = 3, scipen = 999) 
+knitr::opts_chunk$set(echo = TRUE, tidy = FALSE)
+```
+
+In this project it was necessary to reanalyze the article doi:10.3390/genes11091057 on the analysis of RNA sequencing data. 
+
+Samples:
+wt_contr
+232_contr
+wt_HS
+232_HS, where HS - myogenic differentiation.
+
+## Processing of the table of counts in DESeq2.
+
+Libraries:
+
+```{r, message = F, error=FALSE}
+require("DESeq2")
+require("dplyr")
+require('pheatmap')
+require(devtools)
+#BiocManager::install("fgsea") 
+require(data.table)
+#BiocManager::install("fgsea")
+require(fgsea)
+require(ggplot2)
+#install.packages('pheatmap')
+require('pheatmap')
+#install.packages('msigdbr')
+require(msigdbr)
+require(AnnotationDbi)
+#install.packages('processx')
+require(devtools)
+require('clusterProfiler')
+require(enrichplot)
+require(DOSE)
+#BiocManager::install("org.Mm.eg.db")
+```
+
+Loading the table of counts from a file on the computer. 
+
+```{r, error=FALSE, message =FALSE}
+table_count <- read.table("Counts.Rmatrix2.txt", header=TRUE, row.names =1)
+```
+
+Let's remove the X before 232 in the title
+
+```{r, error=FALSE, message =FALSE}
+tags <- sapply(colnames(table_count), function (x) sub("X", "", basename(x)))
+colnames(table_count) <- tags
+```
+
+Condition of the experiment:
+
+```{r, error=FALSE, message =FALSE}
+cond <- data.frame(read.csv("Conditions_IB.tsv", header=T, sep = '\t', row.names = 1))
+```
+
+Creation DESEq2 dataset
+
+```{r, error=FALSE, message =FALSE}
+samples = names(table_count)
+dds = DESeqDataSetFromMatrix(countData=table_count, colData=cond, design = ~ Condition)
+#dds <- dds[rowSums(counts(dds)) > 20, ] # Можно сделать фильтр. Оставили гены, где больше 20 каунтов в сумме. На данном этапе не нужно.
+dds <- DESeq(dds) #Нормализация
+res <- results(dds)
+res
+```
+
+PCA plot for samples. Save picture.
+
+```{r, error=FALSE, message =FALSE}
+png("PCA_plot.png", 1000, 1000, pointsize=20)
+vst_dds <- vst(dds)
+counts.norm <- assay(vst_dds)
+PCA_plot <- plotPCA(vst_dds,intgroup=c("Condition"))
+PCA_plot
+dev.off()
+PCA_plot
+```
+
+Volcanoplot. No filtration of the genes. Save in file.
+Red - unreliable gene expression changes.
+
+```{r, error=FALSE, message =FALSE}
+gdata <- data.frame(
+  x=res$log2FoldChange,
+  y=-log10(res$padj)
+)
+#png("Volcanoplot_before.png", 500, 500, pointsize=30)
+ggplot(data=gdata, aes(x=x, y=y, color = (res$padj<0.01 & abs(res$log2FoldChange) >= 1) )) +
+  geom_point(size=1) + theme_bw()  +
+  xlab("Log fold change") +
+  ylab("Adjusted p.value")
+#dev.off()
+
+```
+
+Sorting.
+
+```{r, error=FALSE, message =FALSE}
+sorted <- res[with(res, order(padj, -log2FoldChange)), ] # 16289 genes
+```
+
+Remove NA values. Gene filtering padj<0.01 and abs(log2FoldChange)>1. It's need to ClusterProfiler analysis (Further)
+
+```{r, error=FALSE, message =FALSE}
+sorted_df <- data.frame("id"=rownames(sorted),sorted)
+sorted_df <- na.omit(sorted_df) #удалили NA
+p_adj_below_0.01 <- sorted_df %>% filter(padj<0.01 & abs(log2FoldChange)>1) #filtering with padj и log2FoldChange
+```
+
+Heatmap graph.
+
+```{r, error=FALSE, message =FALSE}
+counts.norm <- counts(dds, normalized=TRUE)
+#png("heatmap_large.png", width=6, height=20, units="in", res=300)
+to_visualise <- counts.norm[rownames(res), order(cond[, 2])]
+to_visualise <- t(apply(to_visualise, 1, function(r) {
+  (r - min(r)) / (max(r) - min(r))
+}))
+to_visualise <- na.omit(to_visualise)
+#install.packages('pheatmap')
+require('pheatmap')
+
+pheatmap(to_visualise, 
+         show_rownames = F, cluster_rows = F,
+         cluster_cols=F,
+         annotation_col = cond)
+#dev.off()
+```
+
+Dispersion spread:
+
+```{r, error=FALSE, message =FALSE}
+#png("qc-dispersions.png", 1000, 1000, pointsize=20)
+plotDispEsts(dds, main="Dispersion plot")
+#dev.off()
+```
+
+
+## Fast Gene Set Enrichment Analysis (GSEA) Using fgsea package
+
+```{r, error=FALSE, message =FALSE}
+#install.packages('msigdbr')
+require(msigdbr)
+require(AnnotationDbi)
+#install.packages('processx')
+require(devtools)
+#BiocManager::install("fgsea") #ввести в командную строку
+require(data.table)
+require(fgsea)
+require(ggplot2)
+```
+
+
+```{r, error=FALSE, message =FALSE}
+BiocManager::install("org.Mm.eg.db")
+organism = "org.Mm.eg.db"
+BiocManager::install(organism, character.only = TRUE)
+require(organism, character.only = TRUE)
+```
+
+
+```{r, error=FALSE, message =FALSE}
+load("C:/R/IB/Projects/Data/mouse_c5_v5p2.rdata")
+pathways <- Mm.c5 # скачала с сайта http://bioinf.wehi.edu.au/software/MSigDB/ категория С5
+```
+
+### wt_contr vs 232_contr
+Let us carry out a comparative analysis of differentially expressed genes between the wt_contr and 232_contr groups. Let's see which genes were influenced by the 232 mutation in LMNA.
+
+```{r, error=FALSE, message =FALSE}
+# wt_contr vs 232_contr
+require('clusterProfiler')
+require(enrichplot)
+require(DOSE)
+```
+
+
+```{r, error=FALSE, message =FALSE}
+de <- results(dds, contrast = c("Condition", "wt_contr", "232_contr"))
+de_Genes <- row.names(de) 
+de$row_Genes <- de_Genes 
+de <- as.data.table(de)
+de <- na.omit(de) 
+de$row_Genes <- as.character(de$row_Genes) 
+de[, row_Genes2 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="SYMBOL")] #new column with SYMBOL gene
+de <- unique(de, by = "row_Genes") 
+#de <- unique(de, by = "row_Genes2")
+de <-de[order(de$padj),] #sorting
+write.csv(de, "table_de.csv") 
+gene_list_de <- de$log2FoldChange
+genes <- bitr(de$row_Genes,
+              fromType = "ENSEMBL",
+              toType = "ENTREZID", 
+              OrgDb = org.Mm.eg.db) 
+names(gene_list_de) <- genes$ENTREZID
+#for fgsea need to create named vector with ENTREZID and log2FoldChange values.
+fr_de <- fgsea(pathways, gene_list_de, nperm = 100000, nproc=4, minSize=15, maxSize=500)
+#head(fr_de[order(pval), ])
+fr_de[order(padj)]
+```
+
+Graph of some signal patways wt_contr vs 232_contr.
+
+```{r, error=FALSE, message =FALSE}
+plotEnrichment(pathways[["GO_ACTIN_FILAMENT_BASED_PROCESS"]],
+               gene_list_de) + 
+  labs(title="Actin filaments process")
+```
+
+
+```{r, error=FALSE, message =FALSE}
+plotEnrichment(pathways[["GO_MUSCLE_TISSUE_DEVELOPMENT"]], gene_list_de) + 
+  ggtitle("Myogenesis")
+```
+
+
+```{r, error=FALSE, message =FALSE}
+plotEnrichment(pathways[["GO_MUSCLE_CONTRACTION"]], gene_list_de) + 
+  ggtitle("Muscle contraction")
+```
+
+```{r, error=FALSE, message =FALSE}
+topPathwaysUp <- fr_de[ES > 0][head(order(pval), n=5), pathway]
+topPathwaysDown <- fr_de[ES < 0][head(order(pval), n=5), pathway]
+topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+```
+
+
+```{r, error=FALSE, message =FALSE}
+plotGseaTable(pathways[topPathways], gene_list_de, fr_de, 
+              gseaParam=0.5)
+```
+
+### Compare wt_4d_HS vs 232_4d_HS
+
+```{r, error=FALSE, message =FALSE}
+#Сравнение wt_4d_HS vs 232_4d_HS
+de2 <- results(dds, contrast = c("Condition", "wt_HS", "232_HS"))
+de2_Genes <- row.names(de2)
+de2$row_Genes <- de2_Genes
+de2 <- as.data.table(de2)
+#de <- de %>% filter(padj<0.01 & abs(log2FoldChange)>1)
+de2 <- na.omit(de2)
+de2$row_Genes <- as.character(de2$row_Genes)
+de2 <- de2[!is.na(de2$row_Genes)]
+de2[, row_Genes2 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="SYMBOL")]
+de2 <- unique(de2, by = "row_Genes")
+de2 <-de2[order(de2$padj),] 
+write.csv(de2, "table_de2.csv") 
+gene_list_de2 <- de2$log2FoldChange
+genes2 <- bitr(de2$row_Genes,
+              fromType = "ENSEMBL",
+              toType = "ENTREZID", 
+              OrgDb = org.Mm.eg.db)
+names(gene_list_de2) <- genes2$ENTREZID
+#gene_list_de <- as.numeric(gene_list_de)
+fr_de2 <- fgsea(pathways, gene_list_de2, nperm = 100000, nproc=4, minSize=15, maxSize=500)
+head(fr_de2[order(pval), ])
+fr_de2[order(padj)]
+```
+
+Graph for wt_4d_HS vs 232_4d_HS.
+
+```{r, error=FALSE, message =FALSE}
+plotEnrichment(pathways[["GO_ACTIN_FILAMENT_BASED_PROCESS"]],
+               gene_list_de2) + labs(title="Actin filaments process")
+```
+
+
+```{r, error=FALSE, message =FALSE}
+plotEnrichment(pathways[["GO_MUSCLE_TISSUE_DEVELOPMENT"]], gene_list_de2) + 
+  ggtitle("Myogenesis")
+```
+
+
+```{r, error=FALSE, message =FALSE}
+plotEnrichment(pathways[["GO_MUSCLE_CONTRACTION"]], gene_list_de2) + 
+  ggtitle("Muscle contraction")
+```
+
+```{r, error=FALSE, message =FALSE}
+topPathwaysUp2 <- fr_de2[ES > 0][head(order(pval), n=5), pathway]
+topPathwaysDown2 <- fr_de2[ES < 0][head(order(pval), n=5), pathway]
+topPathways2 <- c(topPathwaysUp2, rev(topPathwaysDown2))
+```
+
+
+```{r, error=FALSE, message =FALSE}
+plotGseaTable(pathways[topPathways2], gene_list_de2, fr_de2, 
+              gseaParam=0.5)
+```
+
+
+### GSEA analysis
+
+```{r, error=FALSE, message =FALSE}
+#Gene Set Enrichment Analysis with ClusterProfiler
+#BiocManager::install("clusterProfiler")
+require('clusterProfiler')
+require(enrichplot)
+require(DOSE)
+require(ggplot2)
+organism = "org.Mm.eg.db"
+BiocManager::install(organism, character.only = TRUE)
+require(organism, character.only = TRUE)
+```
+
+Add new columns with ENTREZID and SYMBOL of genes.
+
+```{r, error=FALSE, message =FALSE}
+p_adj_Genes <- row.names(p_adj_below_0.01)
+p_adj_below_0.01$row_Genes <- p_adj_Genes
+p_adj_below_0.01 <- as.data.table(p_adj_below_0.01)
+p_adj_below_0.01 <- na.omit(p_adj_below_0.01)
+p_adj_below_0.01$row_Genes <- as.character(p_adj_below_0.01$row_Genes)
+p_adj_below_0.01[, row_Genes2 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="SYMBOL")]
+p_adj_below_0.01[, row_Genes3 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="ENTREZID")]
+p_adj_below_0.01 <-p_adj_below_0.01[order(p_adj_below_0.01$padj),]
+p_adj_below_0.01$row_Genes3 <- as.character(p_adj_below_0.01$row_Genes3)
+```
+Drow some pictures.
+For wt_contr vs 232_contr:
+
+```{r, error=FALSE, message =FALSE}
+de[, row_Genes3 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="ENTREZID")]
+ego_de <- enrichGO(gene          = de$row_Genes3,
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05,
+        readable      = TRUE)
+dotplot(ego_de, showCategory=30)
+#BiocManager::install("Rgraphviz")
+#pdf("signal_pathways_large.pdf",width=1000,height=1000)
+plot_GO <- plotGOgraph(ego_de)
+#dev.off()
+```
+
+For wt_HS vs 232_HS:
+
+```{r, error=FALSE, message =FALSE}
+de2[, row_Genes3 := mapIds(org.Mm.eg.db, keys=row_Genes, 
+                                        keytype="ENSEMBL", column="ENTREZID")]
+ego_de2 <- enrichGO(gene          = de2$row_Genes3,
+                OrgDb         = org.Mm.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05,
+        readable      = TRUE)
+dotplot(ego_de2, showCategory=30)
+#BiocManager::install("Rgraphviz")
+
+#pdf("signal_pathways_large.pdf",width=1000,height=1000)
+plot_GO <- plotGOgraph(ego_de2)
+#dev.off()
+```
+
+
