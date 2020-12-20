@@ -1,0 +1,496 @@
+---
+title: "Analysis of RNA-seq data using Tophat and Cuffdiff"
+author: "Gainova Kristina"
+date: "19 12 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.align = 'center')
+```
+
+```{r eval = TRUE} 
+# function which check if packages are installed (and install if not)
+
+packages = c("org.At.tair.db", "clusterProfiler",
+             "enrichplot", "ggplot2", "DOSE", "ggnewscale", "ggridges", "topGO", "gplots")
+
+
+## Now load or install&load all
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+
+```
+
+## Introduction
+
+To capture the dynamic transcriptional response of Arabidopsis plants to HL stress, scientists performed a time course RNA sequencing (RNA-seq) study (doi:10.1016/j.celrep.2019.11.051). Arabidopsis seedlings were treated with high light (HL: 1,200 mmol m-2 s-1, leaf temperature: 22C) for 0.5, 6, 12, 24, 48, and 72 h with corresponding growth light (GL: 60 mmol m-2 s-1, leaf temperature: 22C) treatments as control. 
+In this study samples treated with HL for 24 h with corresponding growth light (highlighted in yellow) were chosen for following analysis with Tophat and Cuffdiff.
+
+## Goal and objectives
+
+The goal of this study is analysis of RNA-seq data using Tophat and Cufflinks to identify the core HL-responsive genes
+
+Objectives:
+1. Quality control with FastQC
+2. Splice-aware mapping RNA-seq reads to a reference genome using TopHat
+3. Counting genes associated with genes and statistical analysis to identify DEGs using Cuffdiff
+4. Data visualization with R
+
+## Data
+### RNA-seq reads
+To find numbers of SRR samples visit this site <https://trace.ncbi.nlm.nih.gov/Traces/study/> and enter SRP number. 
+Raw RNA-Seq data from Arabidopsis	GEO: GSE111062; SRP133385, Run: SRR6767639, SRR6767640 (GL, 24h) ; SRR6767652, SRR6767653 (HL, 24h). Library of single-end Illumina data, 51 bp: with 2 biological replicates for each sample.
+
+Run				   |  Source_name			|		            TREATMENT
+------------ | ---------------- |------------------------------------------------------------------------------
+SRR6767639 	 |	GL24h,          |7-day old whole seedlings	Growth light (60 µmol.m-2.s-1, 22 oC)
+SRR6767640	 |	GL24h,          | 7-day old whole seedlings	Growth light (60 µmol.m-2.s-1, 22 oC)
+SRR6767652	 |	HL24h,          | 7-day old whole seedlings	High light (1200 µmol.m-2.s-1, leaf temperature: 22 
+SRR6767653	 |	HL24h,          | 7-day old whole seedlings	High light (1200 µmol.m-2.s-1, leaf temperature: 22 
+
+
+I downloaded all SRR using command in command line
+
+~$ prefetch SRR_number
+
+All files restore into **path/ncbi/public/sra**. Sratoolkit is needed to convert SRR into fastq format, command 
+
+~$ fastq-dump SRR_number 
+
+File will be saved into **path/** as **SRR_number.fastq**
+
+To view of SRR file content, type:
+
+~$ less SRR6767639.fastq
+
+
+Example of output:
+
+@SRR6767639.4 4 length=51
+
+NTCAGCTTATGGTACCTATACTCAATGAAGTGAGTGAAACACTGAAAGATA
+
++SRR6767639.4 4 length=51
+
+#<<BBFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+
+
+### Genome and Annotation Data 
+
+
+The iGenome package for Arabidopsis (Ensembl, TAIR 10) downloaded, when unpacked, appears as Arabidopsis_thaliana
+
+**~$ wget http://igenomes.illumina.com.s3-website-us-east-1.amazonaws.com/Arabidopsis_thaliana/Ensembl/TAIR10/Arabidopsis_thaliana_Ensembl_TAIR10.tar.gz**
+
+Within it, there is an Ensembl directory and then a TAIR10 directory. In the TAIR10 directory there are two directories: “Annotation” and “Sequence”. The necessary files are copied out into the working directory:
+
+~$ cp Annotation/Genes/genes.gtf working_directory
+
+~$ cp Sequence/Bowtie2Index/genome.* working_directory
+
+## Programs and R packages
+
+*  FastQC v0.11.5
+*  TopHat v2.1.1 
+*  bowtie2 version 2.3.4.1
+*  Cuffdiff v2.2.1
+*  Bioconductor (v 3.12.0, R version 4.0.3) 
+*  package org.At.tair.db 3.12.0
+*  package clusterProfiler 3.18.0
+*  package enrichplot  1.10.1
+*  package DOSE  3.16.0
+*  package ggplot2  3.3.2
+*  package ggnewscale  0.4.4
+*  package ggridges  0.5.2
+*  package topGO  2.42.0
+
+## Quality control
+
+At the first, It was checked quality of raw reads using FastQC program (v0.11.5). The diagrams below demonstrate high quality of data. Thus read trimming is not required for mapping and quantification of RNA-seq reads.
+
+To assess data quality type:
+
+**~$ fastqc SRR_number.fastq
+
+Result will be saved as html file. To view FastQC report use command:
+
+~$ firefox SRR_number.html
+
+
+**Adapter content**
+
+
+![](C:\bioinformatics institute\Project compare of transcriptoms\adapter.png)
+
+
+**Per base sequence quality**
+
+![](C:\bioinformatics institute\Project compare of transcriptoms\sequence_quality.png)
+
+## Create bowtie2 index
+
+If you want to create genome index own, you can use this command:
+
+~$ bowtie2-build genome.fa genome
+
+This program creates 6 files:
+
+
+genome.1.bt2 genome.2.bt2 genome.3.bt2 genome.4.bt2 genome.rev.1.bt2 genome.rev.2.bt2
+
+## TopHat2
+
+Usage: **tophat [options]* <genome_index_base> <reads1_1[,...,readsN_1]> [reads1_2,...readsN_2]**
+
+
+Starting with version 2.0.10 TopHat accepts mixed input file formats (FASTA/FASTQ).
+
+Arguments:
+
+**genome_index_base** 	The basename of the genome index to be searched. The basename is the name of any of the index files up to but not including the first period. Bowtie first looks in the current directory for the index files, then looks in the indexes subdirectory under the directory where the currently-running bowtie executable is located, then looks in the directory specified in the BOWTIE_INDEXES  (or BOWTIE2_INDEXES) environment variable. **Please note that it is highly recommended that a FASTA file with the sequence(s) the genome being indexed be present in the same directory with the Bowtie index files** and having the name <genome_index_base>.fa. If not present, TopHat will automatically rebuild this FASTA file from the Bowtie index files.
+
+**reads1_1[,...,readsN_1]**	A comma-separated list of files containing reads in FASTQ or FASTA format. When running TopHat with paired-end reads, this should be the *_1 ("left") set of files.
+
+**[reads1_2,...readsN_2]**	A comma-separated list of files containing reads in FASTQ or FASTA format. Only used when running TopHat with paired end reads, and contains the *_2 ("right") set of files. The *_2 files MUST appear in the same order as the *_1 files.
+
+
+Options:
+
+**-i/--min-intron-length <int>**	The minimum intron length. TopHat will ignore donor/acceptor pairs closer than this many bases apart. The default is 70.
+**-I/--max-intron-length <int>**	The maximum intron length. When searching for junctions ab initio, TopHat will ignore donor/acceptor pairs farther than this many bases apart, except when such a pair is supported by a split segment alignment of a long read. The default is 500000.
+
+### Running TopHat
+
+Working directory must contains: reference genome and bowtie index files, annotation (GTF) and reads in format fastq
+
+I used the following commands to map the RNA-seq reads to the genome:
+
+~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767639_tophat genome SRR6767639.fastq
+
+~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767640_tophat genome SRR6767640.fastq
+
+~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767652_tophat genome SRR6767652.fastq
+
+~$ tophat -p 2 -i 20 -I 5000 -G genes.gtf -o SRR6767653_tophat genome SRR6767653.fastq
+
+
+Here, ‘SRR*******_tophat’ represents the output directory for each run. If no output directory is specified by the –o option, TopHat automatically creates a directory called tophat_out in the working director, and stores the output files in it. The values of the intron lengths are adjusted as 20bp and 5000 bp respectively for Arabidopsis thaliana instead of the default values which are for mammals.
+
+See **_Note 1_** to read console messages.
+
+**Error occurs during the execution of the program**
+samtools view: samtools view: writing to standard output failedwriting to standard output failed: Broken pipe
+: Broken pipe
+samtools view: error closing standard output: -1
+
+The successful run creates a directory with the name specified by the user, containing the following files: **accepted_hits.bam**, **align_summary.txt**, **deletions.bed**, **insertions.bed**, **junctions.bed**, **prep_reads.info**, **unmapped.bam** and a directory with the name **logs**.
+
+## Cuffdiff
+
+Since it exists reference genome and annotation for Arabidopsis thaliana I skipped steps with Cufflinks and Cuffmerge (_de novo assembling_ step) and used Cuffdiff program.
+
+Cuffdiff program is used to find significant changes in transcript expression, splicing, and promoter use. Manual for Cuffdiff you can find here <http://cole-trapnell-lab.github.io/cufflinks/cuffdiff/>.
+
+
+Cuffdiff options:
+
+**-o/–output-dir <string>* Sets the name of the directory in which Cuffdiff will write all of its output. The default is “./”. From the command line, run cuffdiff as follows:
+
+**-L/–labels <label1,label2,…,labelN>** Specify a label for each sample, which will be included in various output files produced by Cuffdiff.
+
+**-p/–num-threads <int>** Use this many threads to align reads. The default is 1.
+
+~$ cuffdiff --geometric-norm -p 16 -o cuffdiff_result_only genes.gtf -L GL_12h_control,HL_12h_treatment ./SRR6767639_tophat/accepted_hits.bam,./SRR6767640_tophat/accepted_hits.bam ./SRR6767652_tophat/accepted_hits.bam,./SRR6767653_tophat/accepted_hits.bam
+
+Here parameter **--geometric-norm** was used for data normalization.
+
+The successful run creates a directory with the name specified by the user, containing the following files:
+bias_params.info, gene_exp.diff, isoforms.fpkm_tracking, tss_group_exp.diff, cds.count_tracking, genes.count_tracking,    isoforms.read_group_tracking, tss_groups.count_tracking, cds.diff, genes.fpkm_tracking, promoters.diff, tss_groups.fpkm_tracking,
+cds_exp.diff, genes.read_group_tracking, read_groups.info, tss_groups.read_group_tracking, cds.fpkm_tracking, isoform_exp.diff, run.info, var_model.info, cds.read_group_tracking, isoforms.count_tracking, splicing.diff
+
+Needed file called gene_exp.diff. Initially I viewed content of the file and remove rows, where encountered value "inf" using command line:
+
+~$ cat gene_exp.diff | grep -v "inf"  > new_file.csv
+
+
+## Data analysis in R
+### Data preparation
+
+Prepare dataframe with DEGs:
+
+```{r}
+data <- read.csv("C:\\bioinformatics institute\\Project compare of transcriptoms\\Gene_exp_diff_WoInf.csv",
+                 sep = '\t', row.names = 1, header = TRUE)
+str(data)
+head(data)
+```
+
+To do Gene Set Enrichment Analyssis with clusterProfilier package I need to transform gene_id (in my case it is TAIR id) to ETREZID. 
+
+```{r echo = FALSE, results='hide',message = FALSE}
+x <- org.At.tair.db::org.At.tairENTREZID
+mapped_genes <- mappedkeys(x)
+
+xx <- as.list(x[mapped_genes])
+# if(length(xx) > 0) {
+#   # Get the Entrez gene IDs for the first five genes
+#   xx[1:5]
+#   # Get the first one
+#   xx[[1]]
+# }
+m <- matrix(unlist(xx),byrow=TRUE,ncol=length(xx[[1]]))
+rownames(m) <- names(xx)
+as.data.frame(m)
+gene_id <- rownames(m)
+Entrezid <- m
+
+# create dataframe with TAIR gene id and ENTREZID
+df_Entrezid <- data.frame(gene_id,Entrezid)
+
+```
+
+I created new dataframe which includes column with ENTREZID. But I didn't be lucky (column with ENTREZID contains 2000 empty values). I had to find ENTREZID for 92 genes (which were differentially expressed) manually. After I sorted my data and chose DEGs (p adj < 0.05)
+
+```{r echo = FALSE, message = FALSE}
+# INNER JOIN Explained
+# Inner Join in R is the simplest and most common type of join. It is also known as simple 
+#join or Natural Join. Inner join returns the rows when matching condition is met.
+
+df_intersection = merge(x= data,y=df_Entrezid,by="gene_id")
+
+# ANTI JOIN in R using dplyr,This join is like df1-df2, as it selects all rows from df1 
+#that are not present in df2.
+
+library(dplyr)
+df_antiJoin= data %>% anti_join(df_Entrezid,by="gene_id")
+
+#create df with significant genes and manually search NCBI gene ids
+
+Z <- df_antiJoin[which(df_antiJoin$p_value < 0.05),]
+Z <- Z[which(Z$log2.fold_change. <= -1 | Z$log2.fold_change. >= 1),]
+Z$Entrezid <- c(rep(NA,93))
+Z$Entrezid[1] <- 3766660
+Z$Entrezid[2]<- 10723102
+Z$Entrezid[3] <- 10723079
+Z$Entrezid[4] <- 838183
+Z$Entrezid[5] <- 28717283
+Z$Entrezid[6] <- 3766915
+Z$Entrezid[7] <- 3766952
+Z$Entrezid[8] <- 3767183
+Z$Entrezid[9] <- 3767376
+Z$Entrezid[10] <- 5007838
+Z$Entrezid[11] <- 6240490
+Z$Entrezid[12] <- 6240619
+Z$Entrezid[13] <- 5007839
+Z$Entrezid[14] <- 3767675
+Z$Entrezid[15] <- 3767686
+Z$Entrezid[16] <- 28717431
+Z$Entrezid[17] <- 814986
+Z$Entrezid[18] <- 3767953
+Z$Entrezid[19] <- 3767810
+Z$Entrezid[20] <- 3768458
+Z$Entrezid[21] <- 28718276
+Z$Entrezid[22] <- 28718279
+Z$Entrezid[23] <- 3768408
+Z$Entrezid[24] <- 3767875
+Z$Entrezid[25] <- 7922409
+Z$Entrezid[26] <- 3768014
+Z$Entrezid[27] <- 817289
+Z$Entrezid[28] <- 5007925
+Z$Entrezid[29] <- 28718360
+Z$Entrezid[30] <- 820762
+Z$Entrezid[31] <- 3768842
+Z$Entrezid[32] <- 3768803
+Z$Entrezid[33] <- 28719282
+Z$Entrezid[34] <- 3768797
+Z$Entrezid[35] <- 6240729
+Z$Entrezid[36] <- 6240732
+Z$Entrezid[37] <- 3768938
+Z$Entrezid[38] <- 5008039
+Z$Entrezid[39] <- 3768969
+Z$Entrezid[40] <- 3769500
+Z$Entrezid[41] <- 5008069
+Z$Entrezid[42] <- 5008083
+Z$Entrezid[43] <- 3769724
+Z$Entrezid[44] <- 5008103
+Z$Entrezid[45] <- 5008111
+Z$Entrezid[46] <- 828102
+Z$Entrezid[47] <- 3769846
+Z$Entrezid[48] <- 3769914
+Z$Entrezid[49] <- 3770246
+Z$Entrezid[50] <- 5008139
+Z$Entrezid[51] <- 6240426
+Z$Entrezid[52] <- 6241102
+Z$Entrezid[53] <- 28720179
+Z$Entrezid[54] <- 10723129
+Z$Entrezid[55] <- 3770549
+Z$Entrezid[56] <- 10723022
+Z$Entrezid[57] <- 6241231
+Z$Entrezid[58] <- 6241428
+Z$Entrezid[59] <- 3771206
+Z$Entrezid[60] <- 833624
+Z$Entrezid[61] <- 3771403
+Z$Entrezid[62] <- 3771429
+Z$Entrezid[63] <- 834967
+Z$Entrezid[64] <- 3771489
+Z$Entrezid[65] <- 6241185
+Z$Entrezid[66] <- 5008331
+Z$Entrezid[67] <- 844802
+Z$Entrezid[68] <- 844789
+Z$Entrezid[69] <- 844775
+Z$Entrezid[70] <- 844773 
+Z$Entrezid[71] <- 844774  
+Z$Entrezid[72] <- 844771  
+Z$Entrezid[73] <- 844770  
+Z$Entrezid[74] <- 844768  
+Z$Entrezid[75] <- 844767  
+Z$Entrezid[76] <- 844765  
+Z$Entrezid[77] <- 844754  
+Z$Entrezid[78] <- 844755  
+Z$Entrezid[79] <- 844752  
+Z$Entrezid[80] <- 844733
+Z$Entrezid[81] <- 844732
+Z$Entrezid[82] <- 844730
+Z$Entrezid[83] <- 844729
+Z$Entrezid[84] <- 844728
+Z$Entrezid[85] <- 844724
+Z$Entrezid[86] <- 844806
+Z$Entrezid[87] <- 844804
+Z$Entrezid[88] <- 844805
+Z$Entrezid[89] <- 36335649
+Z$Entrezid[90] <- NA
+Z$Entrezid[91] <- NA
+Z$Entrezid[92] <- NA
+Z$Entrezid[93] <- NA
+Z <- na.omit(Z)
+
+#Merge dataframe df_intersection and Z(with genes significantly cange exression) 
+full_data_with_entrezid <- rbind(df_intersection,Z)
+
+# Create data frame with DEGs, p value < 0.05 and abs(log2FC >= 1.5)
+
+data_filtered <- full_data_with_entrezid[which(full_data_with_entrezid$q_value <0.05),]
+data_filtered <- data_filtered[which(data_filtered$log2.fold_change. <= -1.5 | data_filtered$log2.fold_change. >= 1.5),]
+
+
+```
+
+### GSEA analysis 
+
+
+```{r echo = FALSE}
+# to check which options are available with the keytypes command
+#keytypes(org.At.tair.db)
+ 
+original_gene_list <- data_filtered$log2.fold_change.
+names(original_gene_list) <- data_filtered$Entrezid
+gene_list <- na.omit(original_gene_list)
+gene_list <- sort(gene_list, decreasing = TRUE)
+
+#Parameters
+# ont one of “BP”, “MF”, “CC” or “ALL”
+# nPerm the higher the number of permutations you set, the more accurate your result will, but the longer the analysis will take.
+# minGSSize minimum number of genes in set (gene sets with lower than this many genes in your dataset will be ignored).
+# maxGSSize maximum number of genes in set (gene sets with greater than this many genes in your dataset will be ignored).
+# pvalueCutoff pvalue Cutoff.
+# pAdjustMethod one of “holm”, “hochberg”, “hommel”, “bonferroni”, “BH”, “BY”, “fdr”, “none”
+
+gse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENTREZID", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.At.tair.db, 
+             pAdjustMethod = "none")
+
+```
+
+#### DotPlot
+
+To gain insight into biological processes in response to HL, I analyzed the GO term enrichment of DEGs 24h HL time point. As you can see downregulated genes are related with biosythesis while upregulated genes are related with responses to different stress.
+
+```{r}
+dotplot(gse, showCategory = 10, split=".sign") + facet_grid(.~.sign)
+
+```
+
+
+#### GseaPlot
+
+```{r}
+gseaplot(gse, by = "all", title = gse$Description[1], geneSetID = 1) 
+
+```
+
+
+#### Encrichment Map
+
+```{r}
+Y <- pairwise_termsim(gse,method = "JC", semData = NULL, showCategory = 10)
+emapplot(Y, showCategory = 10)
+```
+
+
+#### Volcano Plot
+
+Create VolcanoPlot with all DEGs. Total amount of DEGs equal 2620, 1365 is down-regulated (blue points) and 1260 is upregulated (red points), p < 0.05, abs(log2FC) > 1.
+
+```{r}
+q_data <- data.frame(x=full_data_with_entrezid$log2.fold_change., y= full_data_with_entrezid$q_value,
+                     significant = full_data_with_entrezid$significant)
+
+q_data[which(q_data$significant == "yes" & q_data$y < 0.05 & q_data$x < -1),3] <- c("Down")
+q_data[which(q_data$significant == "yes" & q_data$y < 0.05 & q_data$x > 1),3] <- c("Up")
+q_data[which(q_data$significant == "yes"),3] <- c("Not significant")
+q_data[which(q_data$significant == "no"),3] <- c("Not significant")
+
+q_data <- data.frame(x=q_data$x, y= -log10(q_data$y), significant = q_data$significant)
+
+ggplot(data=q_data, aes(x=x, y=y)) + geom_point(aes(col = significant), size = 1) + theme_bw()  + 
+  ggtitle("Volcano plot (Control vs High Light treated)", 
+  subtitle = "Data of transcriptome of Arabidopsis thaliana 
+            under high-intensity light without heat stress") +
+  xlab("Log2 Fold Change") +
+  ylab("- log10(Padj)") + 
+  scale_color_manual(values = c("Not significant" = "black", "Up" = "red", "Down" = "blue")) +
+  theme(legend.title = element_blank())
+```
+
+
+## Problems
+
+Unfortunately normilization in cuffddif programs works awful! I find that for almost of genes q_value has same values. I decided to find amount of duplicated values in column "q_value" and it equals more 80 % of data!
+
+```{r}
+data_with_duplicates <- data[duplicated(data$q_value),]
+
+```
+
+Also using of pipeline cufflinks -> cuffmerge -> cuffdiff convert gene id to XLOC ** id. It makes difficult work with data.
+
+Tophat2 v2.1.1 have some problems with error samtools view [samtools view: writing to standard output failedwriting to standard output failed: Broken pipe : Broken pipe samtools view: error closing standard output: -1] and unknown ways to solve this error.
+
+## Conclusion
+
+Here it was conducted reanalysis of RNA-seq data to identify the core HL-responsive genes. It was found that 2620 DEGs (1260 upregulated and 1365 downregulated genes, padj < 0.05 and abs(log2FC) > 1). It was shown that upregulateg genes are related with different response to stress stimulus, while downregulated genes are involved in biosythesis and differentiation.
+
+## References
+
+<https://rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf>
+<https://www.bioconductor.org/packages/release/data/annotation/manuals/org.At.tair.db/man/org.At.tair.db.pdf> 
+<https://cran.r-project.org/web/packages/ggridges/vignettes/introduction.html>
+<https://learn.gencore.bio.nyu.edu/rna-seq-analysis/gene-set-enrichment-analysis/>
+<https://rdrr.io/github/GuangchuangYu/enrichplot/man/pairwise_termsim.html>
+Martin Morgan (2020). BiocVersion: Set the appropriate version of Bioconductor packages. R package version 3.12.0.
+Ghosh S, Chan CK. Analysis of RNA-Seq Data Using TopHat and Cufflinks. Methods Mol Biol. 2016;1374:339-61. doi: 10.1007/978-1-4939-3167-5_18. PMID: 26519415.

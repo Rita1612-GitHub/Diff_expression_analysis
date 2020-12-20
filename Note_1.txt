@@ -1,0 +1,48 @@
+[2020-12-13 18:53:18] Beginning TopHat run (v2.1.1)
+-----------------------------------------------
+[2020-12-13 18:53:18] Checking for Bowtie
+		  Bowtie version:	 2.3.4.1
+[2020-12-13 18:53:18] Checking for Bowtie index files (genome)..
+[2020-12-13 18:53:18] Checking for reference FASTA file
+[2020-12-13 18:53:18] Generating SAM header for genome
+[2020-12-13 18:53:18] Reading known junctions from GTF file
+[2020-12-13 18:53:22] Preparing reads
+	 left reads: min. length=51, max. length=51, 27072472 kept reads (419 discarded)
+[2020-12-13 18:56:10] Building transcriptome data files SRR6767639_tophat/tmp/genes
+[2020-12-13 18:56:18] Building Bowtie index from genes.fa
+[2020-12-13 18:58:22] Mapping left_kept_reads to transcriptome genes with Bowtie2 
+[2020-12-13 19:14:53] Resuming TopHat pipeline with unmapped reads
+[2020-12-13 19:14:53] Mapping left_kept_reads.m2g_um to genome genome with Bowtie2 
+[2020-12-13 19:15:40] Mapping left_kept_reads.m2g_um_seg1 to genome genome with Bowtie2 (1/2)
+[2020-12-13 19:15:54] Mapping left_kept_reads.m2g_um_seg2 to genome genome with Bowtie2 (2/2)
+[2020-12-13 19:16:17] Searching for junctions via segment mapping
+	Coverage-search algorithm is turned on, making this step very slow
+	Please try running TopHat again with the option (--no-coverage-search) if this step takes too much time or memory.
+[2020-12-13 19:18:28] Retrieving sequences for splices
+[2020-12-13 19:18:32] Indexing splices
+Building a SMALL index
+[2020-12-13 19:18:40] Mapping left_kept_reads.m2g_um_seg1 to genome segment_juncs with Bowtie2 (1/2)
+[2020-12-13 19:18:47] Mapping left_kept_reads.m2g_um_seg2 to genome segment_juncs with Bowtie2 (2/2)
+[2020-12-13 19:18:58] Joining segment hits
+[2020-12-13 19:19:06] Reporting output tracks
+-----------------------------------------------
+[2020-12-13 19:33:32] A summary of the alignment counts can be found in SRR6767639_tophat/align_summary.txt
+[2020-12-13 19:33:32] Run complete: 00:40:13 elapsed
+samtools view: samtools view: writing to standard output failedwriting to standard output failed: Broken pipe
+: Broken pipe
+samtools view: writing to standard output failed: Broken pipe
+samtools view: writing to standard output failed: Broken pipe
+samtools view: writing to standard output failed: Broken pipe
+samtools view: writing to standard output failed: Broken pipe
+samtools view: samtools view: writing to standard output failedwriting to standard output failed: Broken pipe
+: Broken pipe
+samtools view: error closing standard output: -1
+samtools view: error closing standard output: -1
+samtools view: error closing standard output: -1
+samtools view: writing to standard output failed: Broken pipe
+samtools view: error closing standard output: -1
+samtools view: error closing standard output: -1
+samtools view: error closing standard output: -1
+gainova@master:/mnt4/transciptome_compare/gainova_kristina/Tophat2_Cuffdiff/folder_Cufflinks$ samtools view: error closing standard output: -1
+samtools view: error closing standard output: -1
+samtools view: error closing standard output: -1
