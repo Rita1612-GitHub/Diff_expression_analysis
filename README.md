@@ -212,6 +212,16 @@ dotplot(ego_de, showCategory=30)
 #BiocManager::install("Rgraphviz")
 plot_GO <- plotGOgraph(ego_de)
 ```
+## References
+- https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf
+- https://training.galaxyproject.org/training-material/topics/transcriptomics/tutorials/ref-based/tutorial.html
+- https://hbctraining.github.io/Intro-to-rnaseq-hpc-O2/schedule/
+- https://hbctraining.github.io/Intro-to-rnaseq-hpc-O2/lessons/05_counting_reads.html
+- https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#quick-start
+- https://www.bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#theory
+- https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#contrasts
+- https://hbctraining.github.io/DGE_workshop/lessons/06_DGE_visualizing_results.html
+
 # *Arabidopsis thaliana* (Gainova Kristina)
 ## Methods:
 - TopHat2 (v2.1.1) alignment
