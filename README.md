@@ -340,5 +340,289 @@ Ghosh S, Chan CK. Analysis of RNA-Seq Data Using TopHat and Cufflinks. Methods M
 
 3. Kvach Anna
 
+# Introduction
+
+Colonial invertebrates, such as corals, hydrozoans, bryozoans, and ascidians, consist of repeating elements called modules, or zooids, that are produced by budding. Zooids are not equal in their structure and functions in many colonial invertebrates, including bryozoans. Due to this phenomenon called zooidal polymorphism, there is a “division of labor” within the colony. Probably, the difference in structure is a result of divergent strategies of module development, controlled by different molecular toolkits. To date, such data are available only for polymorphic colonial hydrozoans. The study carried out by K. Treibergs and G. Giribet is the first for bryozoans.
+
+My task was to reproduce the analysis of differential gene expression (DGE) of polymorphic zooids from the article - "Differential Gene Expression Between Polymorphic Zooids of the Marine Bryozoan Bugulina stolonifera" - <https://www.g3journal.org/content/10/10/3843#sec-1>. 
+
+## About data
+
+Were used:
+* Autozooid-Avicularium Transcriptome <https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/SDJZ4X>
+* Annotation  for it - <https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/GHE8T4>
+* Reads (includes autozooid bud, mature autozooid, avicularium bud, and mature avicularium samples) 
+
+Zooid type          |    SRR ID        | 
+--------------------|------------------|
+avicularium, mature | 	 SRR11096622   |    
+avicularium, bud	  |    SRR11096623	 |  
+avicularium, bud  	|    SRR11096624	 |     
+avicularium, bud  	|    SRR11096625	 |    
+autozooid, mature	  |    SRR11096626	 |      
+autozooid, mature	  |    SRR11096627	 |      
+autozooid, mature	  |    SRR11096628	 |     
+autozooid, bud	    |    SRR11096629	 |   
+avicularium, mature |    SRR11096637	 |     
+avicularium, mature |    SRR11096638	 | 
+autozooid, bud	    |    SRR11096639	 |     
+autozooid, bud	    |    SRR11096640	 | 
+
+## Pipeline (Short)
+
+My project includs 3 parts:
+1. **Reads preparation** (several iterations of data sanitasion and quality assessments)
+    * Sratoolkit - to download data
+    * FastQC (version : 0.11.5) - quality assessment
+    * MultiQC - quality assessment of all reports
+    * Trim Galore (version :0.6.6) - remove low-quality reads
+    * Rcorrector - error correction for Illumina RNA-seq reads
+    * Bowtie2 - Remove over-represented sequences 
+2. **Quantification**
+    * Salmon (version : 0.7.2)
+4. **Differential gene expression**
+    * EdgeR (version : 3.28.1)
+
+
+## Pipeline (Long)
+
+--------------------
+
+ATTENTION! In this file (README) you will find only breef descrition of main parametres, do not run this parts of code!
+
+Full code for all analisis - https://github.com/Rita1612-GitHub/Diff_expression_analysis/blob/KvachAnna/kvach_anna_2020.Rmd
+
+----------------------
+
+### Sratoolkit - to download data
+
+```bash
+# id - SRR ID                            
+prefetch $id                           
+fastq-dump --split-files --split-3 ${id}.sra
+```
+
+Also data could be obtained directly and manually from EBLM-EBI - <https://www.ebi.ac.uk/ena/browser/view/PRJNA607082>. 
+
+
+### 1 FastQC and MultiQC
+
+```bash
+fastqc -t 10 -o /path_to/FastQC_1_for_raw_data * 
+multiqc /path_to/FastQC_1_for_raw_data
+```
+-o FastQC_1_for_raw_data - dir for fastqc reports
+
+**Quality reports show problems with**:
+
+* The mean quality value across each base position in the read for 4 fastq files
+
+* The proportion of each base position for which each of the four normal DNA bases has been called for all
+
+* Per Sequence GC Content for all
+
+* Sequence Duplication Levels for all
+
+* Overrepresented sequences for 23 fastq files is failed
+
+* Adapter Content for all
+
+
+You can find my quality report in repository - multiqc_report_RAW_READS.html
+
+
+### Trim Galore + 2 FastQC and MultiQC after it
+
+As we faced with adapters-problem we create file.fasta with adapters from <http://docs.blast2go.com/user-manual/tools-(pro-feature)/fastq-quality-check/#FASTQQualityCheck-PerBaseSequenceQuality>.
+
+```bash
+>Illumina_Universal_Adapter 
+AGATCGGAAGAG
+>Illumina_Small_RNA_3_Adapter
+TGGAATTCTCGG
+>Illumina_Small_RNA_5_Adapter
+GATCGTCGGACT
+```
+
+
+* -q 20 - remove low-quality reads with a Phred score cutoff of 20
+
+* --length 36 - a minimum read length threshold of 36 bp
+
+* -stringency 1 - a stringency parameter of 1 for adapter sequence overlap
+
+* -e 0.1 - a maximum allowed error rate of (0.1) 
+
+* -a2 "file:/path_to/adapters.fasta" - to specify individual adapter sequences from our file.fasta for the two reads of paired-end files
+
+* -o after_trim_galore_1  - all output will be written to this directory 
+
+* --fastqc - create fastQC report
+
+* {$1}_1.fastq - forward reads 
+
+* {$id}_2.fastq - reverse reads 
+
+
+Quality reports of FastQC and MultiQC steel show problems with:
+
+* The proportion of each base position for which each of the four normal DNA bases has been called for all
+
+* Per Sequence GC Content became a little bit better
+
+* Sequence Duplication Levels for all
+
+* Overrepresented sequences became a little bit better
+
+You can find my quality report in repository - multiqc_report_TRIM_GALORE.html
+
+
+### Rcorrector + 3 FastQC and MultiQC after it
+
+```bash
+/path_to/rcorrector -p SRR11096623_1_val_1.fq SRR11096623_2_val_2.fq \
+-p SRR11096624_1_val_1.fq SRR11096624_2_val_2.fq \
+-p SRR11096625_1_val_1.fq SRR11096625_2_val_2.fq \
+-p SRR11096637_1_val_1.fq SRR11096637_2_val_2.fq \
+-p SRR11096638_1_val_1.fq SRR11096638_2_val_2.fq \
+-p SRR11096622_1_val_1.fq SRR11096622_2_val_2.fq \
+-p SRR11096629_1_val_1.fq SRR11096629_2_val_2.fq \
+-p SRR11096639_1_val_1.fq SRR11096639_2_val_2.fq \
+-p SRR11096640_1_val_1.fq SRR11096640_2_val_2.fq \
+-p SRR11096626_1_val_1.fq SRR11096626_2_val_2.fq \
+-p SRR11096627_1_val_1.fq SRR11096627_2_val_2.fq \
+-p SRR11096628_1_val_1.fq SRR11096628_2_val_2.fq -od test_rcorrector_1
+```
+
+Quality report does not change.
+
+You can find my quality report in repository - multiqc_report_RCORRECTOR.html
+
+### Identify and remove over-represented sequences (before Bowtie2)
+
+Based on all FastQC reports tables and .fasta file (over_r_rRNA.fasta) with all over-represented sequences was created. 
+
+You can find table_FastQC_reports.csv and .fasta file (over_r_rRNA.fasta).
+
+
+Using over_r_rRNA.fasta with help of Blastn - (<https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome>) all unique sequences were identified.
+
+* Database --> Standard databases (nr/nt) --> Nucleotide collection (nr/nt)
+
+* Organism --> bryozoans (taxid:10205)
+
+
+After that, it was indicated in the table opposite each sequence what it encodes. 
+
+The sequences of ribosomal RNA and cytochrome oxidases were transferred to the fast file (over_r_rRNA.fasta). 
+
+This is necessary for the next cleaning step.
+
+### Bowtie2 - Remove over-represented sequences 
+
+We used Bowtie2 to filtered the read, which mapped on over_r_rRNA.fasta (file with rRNA and COI sequences). 
+
+The example we used to complete this part. - <https://sites.google.com/site/wiki4metagenomics/tools/short-read/remove-host-sequences>
+
+Bowtie2 database was created using fasta file with over-represented sequences.
+
+```bash
+bowtie2-build over_r_rRNA.fasta O_R_rRNA_DB
+```
+
+And we used simple bash code to do the operation for each pair of reads:
+
+```bash
+FILE=$1
+while read ID
+do
+        bowtie2 -p 14 -x /path_to/O_R_rRNA_DB \
+        -1 /path_to/${ID}_1_val_1.cor.fq \
+        -2 /path_to/${ID}_2_val_2.cor.fq \
+        --un-conc /path_to/${ID}_rna_removed > ${ID}mapped_and_unmapped.sam
+
+done < $FILE
+```
+
+
+### 4 FastQC and MultiQC
+
+You can find my quality report in repository - fastq_reports_after_rna_remove.html
+
+-----------------------------------------
+For now, we stopped at this step, because we just wanted to try different ways to clean up the data. 
+
+Since we did not plan to collect the transcript, but align it with a ready-made transcript assembled 
+
+from completely purified reads, this should not have hindered us in further analysis.
+
+----------------------------------------
+
+### SALMON 
+
+We used Salmon v0.7.2 for quantification of transcript abundance. Salmon in mapping-based mode uses a selective alignment strategy, that is much faster than traditional alignment (e.g. Bowtie2) while maintaining accuracy. 
+
+**Indexind ref. transcriprome**
+
+We built the mapping-based index for transcriptome assembly.
+
+```bash
+salmon index -t Tr_assem.fasta.gz -i ref_index_Tr_assem
+```
+
+**Counting counts**
+
+We quantify sets of paired-end reads against pre-built index.The library type is automatically determined via -l A. Flag --validateMappings enables selective alignment mode. 
+
+{ID}_rna_removed_1_F.fastq and {ID}_rna_removed_2_R.fastq - forward and revers reads
+
+```bash
+salmon quant -i /path_to/ref_index_Tr_assem -l A \
+         -1 /path_to/${ID}_rna_removed_1_F.fastq \
+         -2 /path_to/${ID}_rna_removed_2_R.fastq \
+         -p 14 --validateMappings -o ${ID}_quant
+```
+
+
+The result f this operation is directories with Salmon quant output (quant.sf). 
+
+Names of directories were like SRR11096629_quant.
+
+We import these directories with FileZilla
+
+
+### EdgeR
+
+All required packages and full code you will find in https://github.com/Rita1612-GitHub/Diff_expression_analysis/blob/KvachAnna/kvach_anna_2020.Rmd
+
+1. We import counts with help of **tximport** function.
+2. We filtered out the genes with low number of counts with **filterByExpr** with default parameters
+3. After filtration we add a normalisation coeficent with **calcNormFactors** to normalise library size with default parameters
+4. To see relative similarities of the 12 samples we you **MDS** function for PcoA plot
+5. To analise DE we used **glmFit**, **glmLRT**, **topTags** functions. (FDR < 0.05) 
+6. For final visualisation were used **finalHM**, **plotMA** functions. 
+
+# References
+
+Bowtie2 - <http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml#output-options>
+
+FastQC - <https://github.com/chgibb/FastQC0.11.5>
+
+FileZilla - <https://filezilla.ru/>
+
+MultiQC - <https://multiqc.info/>
+
+SALMON - <https://github.com/COMBINE-lab/salmon>
+
+Sratoolkit - <http://ncbi.github.io/sra-tools/>
+
+Rcorrector - <https://github.com/mourisl/Rcorrector>
+
+TrimGalore-0.6.6 - <https://github.com/FelixKrueger/TrimGalore>
+
+EdgeR - <https://bioconductor.org/packages/release/bioc/html/edgeR.html>
+
+
+
 
 
